@@ -1,0 +1,54 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Unit tests
+        run: swift test
+
+      - name: Build the app
+        run: ./build.sh --universal
+
+      - name: Package
+        run: ditto -c -k --keepParent build/MacSweep.app build/MacSweep.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MacSweep
+          path: build/MacSweep.zip
+
+      # Launch the real app, let it scan this runner, and make sure it stays up.
+      - name: Launch smoke test
+        run: |
+          mkdir -p build/screenshots
+          for view in overview apps projects; do
+            open -n build/MacSweep.app --args -scanOnLaunch YES -openCategory "$view"
+            sleep 75
+            if ! pgrep -x MacSweep >/dev/null; then
+              echo "::error::MacSweep quit or crashed while showing $view"
+              ls -t ~/Library/Logs/DiagnosticReports 2>/dev/null | head -5
+              exit 1
+            fi
+            screencapture -x "build/screenshots/$view.png" || echo "screencapture unavailable"
+            pkill -x MacSweep || true
+            sleep 3
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: build/screenshots
+          if-no-files-found: ignore

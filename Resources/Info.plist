@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>MacSweep</string>
+	<key>CFBundleIdentifier</key>
+	<string>local.macsweep.MacSweep</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>MacSweep</string>
+	<key>CFBundleDisplayName</key>
+	<string>MacSweep</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>MacSweep asks System Events for your login items so you can remove them, and asks Finder to empty the Trash when you tell it to.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>MacSweep looks for large, duplicate and leftover files on your Desktop.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>MacSweep looks for large, duplicate and leftover files and project build folders in Documents.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>MacSweep looks for old downloads and installers you no longer need.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>MacSweep looks for items in the Trash on removable drives and in folders you add in Settings.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>MacSweep searches network folders only if you add them in Settings.</string>
+</dict>
+</plist>
