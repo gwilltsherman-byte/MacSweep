@@ -1,11 +1,16 @@
 import SwiftUI
 import SweepCore
 
+/// The confirmation sheet's own toggles (see NavigationState for why this isn't @State).
+final class ConfirmationState: ObservableObject {
+    @Published var acknowledged = false
+    @Published var showPlan = false
+}
+
 struct ConfirmRemovalView: View {
     @EnvironmentObject private var model: AppModel
     @AppStorage("useTrash") private var useTrash = true
-    @State private var acknowledged = false
-    @State private var showPlan = false
+    @StateObject private var confirmation = ConfirmationState()
 
     var body: some View {
         let items = model.selectedItems
@@ -56,7 +61,7 @@ struct ConfirmRemovalView: View {
             }
             .frame(height: 230)
 
-            DisclosureGroup("Show exactly what will happen", isExpanded: $showPlan) {
+            DisclosureGroup("Show exactly what will happen", isExpanded: $confirmation.showPlan) {
                 ScrollView {
                     Text(RemovalPlan.describe(items, useTrash: useTrash, home: NSHomeDirectory()).joined(separator: "\n"))
                         .font(.caption.monospaced())
@@ -68,7 +73,7 @@ struct ConfirmRemovalView: View {
 
             Toggle("Move files to the Trash so they can be put back", isOn: $useTrash)
             if needsAcknowledgement {
-                Toggle("I understand that items marked Caution may contain my own data", isOn: $acknowledged)
+                Toggle("I understand that items marked Caution may contain my own data", isOn: $confirmation.acknowledged)
             }
 
             HStack {
@@ -82,7 +87,7 @@ struct ConfirmRemovalView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
-                .disabled(items.isEmpty || (needsAcknowledgement && !acknowledged))
+                .disabled(items.isEmpty || (needsAcknowledgement && !confirmation.acknowledged))
             }
         }
         .padding(20)

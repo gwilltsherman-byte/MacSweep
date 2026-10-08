@@ -1,14 +1,22 @@
 import SwiftUI
 import SweepCore
 
+/// Which page the sidebar shows.
+///
+/// The views keep their local state in small ObservableObjects instead of `@State`: in newer SDKs `@State`
+/// is a macro whose plugin ships only with Xcode, so it doesn't compile with just the Command Line Tools.
+final class NavigationState: ObservableObject {
+    // "openCategory" can be passed as a launch argument (-openCategory apps) to start on a category.
+    @Published var selection: String? = UserDefaults.standard.string(forKey: "openCategory") ?? "overview"
+}
+
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
-    // "openCategory" can be passed as a launch argument (-openCategory apps) to start on a category.
-    @State private var selection: String? = UserDefaults.standard.string(forKey: "openCategory") ?? "overview"
+    @StateObject private var navigation = NavigationState()
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(selection: $selection)
+            SidebarView(selection: $navigation.selection)
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 360)
         } detail: {
             VStack(spacing: 0) {
@@ -59,11 +67,11 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detail: some View {
-        if let id = selection, id != "overview", let category = model.category(id) {
+        if let id = navigation.selection, id != "overview", let category = model.category(id) {
             CategoryView(category: category)
                 .id(id)
         } else {
-            OverviewView(selection: $selection)
+            OverviewView(selection: $navigation.selection)
         }
     }
 }

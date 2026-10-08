@@ -2,25 +2,30 @@ import AppKit
 import SwiftUI
 import SweepCore
 
+/// Sorting, filtering and row selection for one category page (see NavigationState for why this isn't @State).
+final class CategoryPageState: ObservableObject {
+    @Published var sortOrder = [KeyPathComparator(\Item.sortSize, order: .reverse)]
+    @Published var search = ""
+    @Published var riskFilter = -1
+    @Published var focused = Set<Item.ID>()
+}
+
 struct CategoryView: View {
     let category: SweepCategory
     @EnvironmentObject private var model: AppModel
-    @State private var sortOrder = [KeyPathComparator(\Item.sortSize, order: .reverse)]
-    @State private var search = ""
-    @State private var riskFilter = -1
-    @State private var focused = Set<Item.ID>()
+    @StateObject private var page = CategoryPageState()
 
     private var rows: [Item] {
         var items = model.visibleItems(category.id)
-        if riskFilter >= 0 { items = items.filter { $0.risk.rawValue == riskFilter } }
-        let query = search.trimmingCharacters(in: .whitespaces)
+        if page.riskFilter >= 0 { items = items.filter { $0.risk.rawValue == page.riskFilter } }
+        let query = page.search.trimmingCharacters(in: .whitespaces)
         if !query.isEmpty {
             items = items.filter {
                 $0.title.localizedCaseInsensitiveContains(query) || $0.detail.localizedCaseInsensitiveContains(query)
                     || $0.badgeText.localizedCaseInsensitiveContains(query)
             }
         }
-        return items.sorted(using: sortOrder)
+        return items.sorted(using: page.sortOrder)
     }
 
     var body: some View {
@@ -46,7 +51,7 @@ struct CategoryView: View {
                                 action: nil)
                 } else {
                     table(rows)
-                    if focused.count == 1, let id = focused.first, let item = model.item(id) {
+                    if page.focused.count == 1, let id = page.focused.first, let item = model.item(id) {
                         Divider()
                         ItemDetailView(item: item)
                             .frame(height: 210)
@@ -77,11 +82,11 @@ struct CategoryView: View {
             HStack(spacing: 8) {
                 HStack(spacing: 4) {
                     Image(systemName: "line.3.horizontal.decrease.circle").foregroundStyle(.secondary)
-                    TextField("Filter", text: $search)
+                    TextField("Filter", text: $page.search)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 220)
                 }
-                Picker("Rating", selection: $riskFilter) {
+                Picker("Rating", selection: $page.riskFilter) {
                     Text("All").tag(-1)
                     ForEach(Risk.allCases, id: \.self) { risk in
                         Text(risk.label).tag(risk.rawValue)
@@ -109,7 +114,7 @@ struct CategoryView: View {
     }
 
     private func table(_ rows: [Item]) -> some View {
-        Table(rows, selection: $focused, sortOrder: $sortOrder) {
+        Table(rows, selection: $page.focused, sortOrder: $page.sortOrder) {
             TableColumn("", value: \Item.title) { item in
                 CheckCell(item: item)
             }
