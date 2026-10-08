@@ -53,9 +53,9 @@ jobs:
           path: build/screenshots
           if-no-files-found: ignore
 
-  # Many people only have the Command Line Tools (no Xcode). In newer SDKs some SwiftUI
-  # attributes such as @State are macros whose plugin ships only with Xcode, so make sure
-  # the app builds without it.
+  # Many people only have the Command Line Tools (no Xcode). In newer SDKs (macOS 27+) some
+  # SwiftUI attributes such as @State are macros whose plugin ships only with Xcode, so the
+  # app must not use them. The runner's SDK may be older than that, hence the explicit check.
   command-line-tools:
     name: Build with Command Line Tools only
     runs-on: macos-26
@@ -70,12 +70,6 @@ jobs:
           swift --version
           ls /Library/Developer/CommandLineTools/SDKs
           ls -d /Applications/Xcode*.app || true
-
-      # TEMPORARY: does this runner's Command Line Tools reproduce the @State macro failure?
-      - name: Probe @State with Command Line Tools
-        run: |
-          printf 'import SwiftUI\nstruct V: View { @State var x = 0\n var body: some View { Text("\\(x)") } }\n' > /tmp/probe.swift
-          swiftc -typecheck /tmp/probe.swift && echo "PROBE: @State compiles here" || echo "PROBE: @State FAILS here"
 
       - name: No SwiftUI macros
         run: |

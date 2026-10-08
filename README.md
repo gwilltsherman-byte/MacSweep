@@ -81,7 +81,7 @@ operations. Files go to the Trash by default.
 You need macOS 13 or later and Xcode (or the Command Line Tools, `xcode-select --install`).
 
 ```bash
-git clone https://github.com/gwilltsherman-byte/macsweep.git
+git clone https://github.com/gwilltsherman-byte/MacSweep.git
 cd MacSweep
 ./build.sh                  # or ./build.sh --universal for Apple silicon + Intel
 open build/MacSweep.app
