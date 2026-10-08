@@ -74,9 +74,10 @@ struct Chip: View {
     }
 }
 
+/// Shown inside table rows, so the model is passed in (see CheckCell).
 struct BadgeRow: View {
     let item: Item
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var model: AppModel
 
     var body: some View {
         HStack(spacing: 4) {

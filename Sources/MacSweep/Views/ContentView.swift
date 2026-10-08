@@ -96,7 +96,7 @@ struct SidebarView: View {
             ForEach(SweepSection.allCases) { section in
                 Section(section.rawValue) {
                     ForEach(model.categories(in: section)) { category in
-                        SidebarRow(category: category)
+                        SidebarRow(category: category, model: model)
                             .tag(category.id)
                     }
                 }
@@ -106,9 +106,10 @@ struct SidebarView: View {
     }
 }
 
+/// A sidebar List row; the model is passed in (see CheckCell).
 struct SidebarRow: View {
     let category: SweepCategory
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var model: AppModel
 
     var body: some View {
         let state = model.state(category.id)

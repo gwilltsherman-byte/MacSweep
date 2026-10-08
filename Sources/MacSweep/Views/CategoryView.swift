@@ -116,7 +116,7 @@ struct CategoryView: View {
     private func table(_ rows: [Item]) -> some View {
         Table(rows, selection: $page.focused, sortOrder: $page.sortOrder) {
             TableColumn("", value: \Item.title) { item in
-                CheckCell(item: item)
+                CheckCell(item: item, model: model)
             }
             .width(24)
             TableColumn("Name", value: \Item.title) { item in
@@ -146,7 +146,7 @@ struct CategoryView: View {
             }
             .width(min: 90, ideal: 115)
             TableColumn("Details", value: \Item.badgeText) { item in
-                BadgeRow(item: item)
+                BadgeRow(item: item, model: model)
             }
             .width(min: 80, ideal: 120)
         }
@@ -181,9 +181,11 @@ struct CategoryView: View {
     }
 }
 
+/// Table and List rows get the model passed in rather than via @EnvironmentObject: on macOS 27 a row can be
+/// rendered before the environment reaches it, and a missing EnvironmentObject crashes the app.
 struct CheckCell: View {
     let item: Item
-    @EnvironmentObject private var model: AppModel
+    @ObservedObject var model: AppModel
 
     var body: some View {
         if item.isRemovable {
