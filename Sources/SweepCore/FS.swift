@@ -23,13 +23,22 @@ public struct FileInfo: Sendable {
 }
 
 extension FileInfo {
+    /// Network, FUSE or corrupt file systems can report nonsense block counts; never let that trap or
+    /// poison later sums (1 PiB per file is far beyond any real file).
+    static let maximumAllocation: Int64 = 1 << 50
+
+    static func allocatedBytes(blocks: Int64) -> Int64 {
+        let (bytes, overflow) = max(blocks, 0).multipliedReportingOverflow(by: 512)
+        return overflow ? maximumAllocation : min(bytes, maximumAllocation)
+    }
+
     init(_ st: stat) {
         let type = Int(st.st_mode) & 0o170000
         isDirectory = type == 0o040000
         isSymlink = type == 0o120000
         isRegular = type == 0o100000
         size = Int64(st.st_size)
-        allocated = Int64(st.st_blocks) * 512
+        allocated = FileInfo.allocatedBytes(blocks: Int64(st.st_blocks))
         #if os(Linux)
         modified = Date(timeIntervalSince1970: TimeInterval(st.st_mtim.tv_sec))
         accessed = Date(timeIntervalSince1970: TimeInterval(st.st_atim.tv_sec))

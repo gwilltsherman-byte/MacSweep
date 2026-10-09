@@ -2,6 +2,11 @@ import Foundation
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public struct FileHit: Sendable, Hashable {
     public var path: String
@@ -78,52 +83,60 @@ public struct HomeWalker {
             var stack = [root]
             while let dir = stack.popLast() {
                 if cancel.isCancelled { return result }
-                for name in FS.list(dir) {
-                    let path = dir + "/" + name
-                    guard let info = FS.info(path) else { continue }
-
-                    if info.isSymlink {
-                        if FS.targetInfo(path) == nil { result.brokenLinks.append(path) }
-                        continue
-                    }
-
-                    if info.isDirectory {
-                        if info.device != rootInfo.device || skips.contains(path) { continue }
-                        if let kind = ArtifactRules.match(name: name, parent: dir) {
-                            result.artifacts.append(ArtifactHit(path: path, kind: kind))
-                            continue
-                        }
-                        if name.hasPrefix(".") { continue }
-                        if HomeWalker.packageExtensions.contains(FS.ext(name)) { continue }
-                        stack.append(path)
-                        continue
-                    }
-
-                    guard info.isRegular else { continue }
-                    result.filesSeen += 1
-                    if name == ".DS_Store" { result.dsStores.append(path); continue }
-                    if name.hasPrefix("._") { result.appleDoubles.append(path); continue }
-                    if name == "Thumbs.db" || name == "desktop.ini" || name == "ehthumbs.db" {
-                        result.windowsJunk.append(path)
-                        continue
-                    }
-                    if info.isDataless { continue }
-
-                    let ext = FS.ext(name)
-                    if HomeWalker.installerExtensions.contains(ext) {
-                        result.installers.append(FileHit(path: path, size: info.allocated, modified: info.modified))
-                    } else if info.allocated >= settings.largeFileThreshold {
-                        result.largeFiles.append(FileHit(path: path, size: info.allocated, modified: info.modified))
-                    }
-                    if info.size >= settings.duplicateMinSize {
-                        if info.linkCount > 1 && !seenInodes.insert("\(info.device):\(info.inode)").inserted { continue }
-                        result.sizeBuckets[info.size, default: []].append(path)
-                    }
+                // FS.list returns autoreleased arrays on macOS; drain them per folder, not once at the end.
+                autoreleasepool {
+                    visit(dir, device: rootInfo.device, skips: skips, stack: &stack, result: &result, seenInodes: &seenInodes)
                 }
             }
         }
         result.sizeBuckets = result.sizeBuckets.filter { $0.value.count > 1 }
         return result
+    }
+
+    private func visit(_ dir: String, device: UInt64, skips: Set<String>, stack: inout [String],
+                       result: inout HomeWalkResult, seenInodes: inout Set<String>) {
+        for name in FS.list(dir) {
+            let path = dir + "/" + name
+            guard let info = FS.info(path) else { continue }
+
+            if info.isSymlink {
+                if FS.targetInfo(path) == nil { result.brokenLinks.append(path) }
+                continue
+            }
+
+            if info.isDirectory {
+                if info.device != device || skips.contains(path) { continue }
+                if let kind = ArtifactRules.match(name: name, parent: dir) {
+                    result.artifacts.append(ArtifactHit(path: path, kind: kind))
+                    continue
+                }
+                if name.hasPrefix(".") { continue }
+                if HomeWalker.packageExtensions.contains(FS.ext(name)) { continue }
+                stack.append(path)
+                continue
+            }
+
+            guard info.isRegular else { continue }
+            result.filesSeen += 1
+            if name == ".DS_Store" { result.dsStores.append(path); continue }
+            if name.hasPrefix("._") { result.appleDoubles.append(path); continue }
+            if name == "Thumbs.db" || name == "desktop.ini" || name == "ehthumbs.db" {
+                result.windowsJunk.append(path)
+                continue
+            }
+            if info.isDataless { continue }
+
+            let ext = FS.ext(name)
+            if HomeWalker.installerExtensions.contains(ext) {
+                result.installers.append(FileHit(path: path, size: info.allocated, modified: info.modified))
+            } else if info.allocated >= settings.largeFileThreshold {
+                result.largeFiles.append(FileHit(path: path, size: info.allocated, modified: info.modified))
+            }
+            if info.size >= settings.duplicateMinSize {
+                if info.linkCount > 1 && !seenInodes.insert("\(info.device):\(info.inode)").inserted { continue }
+                result.sizeBuckets[info.size, default: []].append(path)
+            }
+        }
     }
 }
 
@@ -223,36 +236,54 @@ public enum DuplicateFinder {
         let found = Locked([DuplicateGroup]())
         let headBytes = 64 * 1024
         DispatchQueue.concurrentPerform(iterations: candidates.count) { index in
-            if cancel.isCancelled { return }
-            let candidate = candidates[index]
-            var byHead: [String: [String]] = [:]
-            for path in candidate.paths {
-                if let hash = ContentHash.hash(path, limit: headBytes) { byHead[hash, default: []].append(path) }
+            autoreleasepool { findGroups(in: candidates[index], headBytes: headBytes, cancel: cancel, into: found) }
+        }
+        return found.current.sorted { wasted($0) > wasted($1) }
+    }
+
+    /// Bytes taken by the extra copies, saturating instead of trapping on absurd sizes.
+    static func wasted(_ group: DuplicateGroup) -> Int64 {
+        let (bytes, overflow) = group.size.multipliedReportingOverflow(by: Int64(group.paths.count - 1))
+        return overflow ? Int64.max : bytes
+    }
+
+    private static func findGroups(in candidate: (size: Int64, paths: [String]), headBytes: Int, cancel: CancelToken,
+                                   into found: Locked<[DuplicateGroup]>) {
+        if cancel.isCancelled { return }
+        var byHead: [String: [String]] = [:]
+        for path in candidate.paths {
+            if let hash = ContentHash.hash(path, limit: headBytes) { byHead[hash, default: []].append(path) }
+        }
+        for group in byHead.values where group.count > 1 {
+            if candidate.size <= Int64(headBytes) {
+                found.withLock { $0.append(DuplicateGroup(size: candidate.size, paths: group.sorted())) }
+                continue
             }
-            for group in byHead.values where group.count > 1 {
-                if candidate.size <= Int64(headBytes) {
-                    found.withLock { $0.append(DuplicateGroup(size: candidate.size, paths: group.sorted())) }
-                    continue
-                }
-                var byFull: [String: [String]] = [:]
-                for path in group {
-                    if cancel.isCancelled { return }
-                    if let hash = ContentHash.hash(path, limit: nil) { byFull[hash, default: []].append(path) }
-                }
-                for same in byFull.values where same.count > 1 {
-                    found.withLock { $0.append(DuplicateGroup(size: candidate.size, paths: same.sorted())) }
-                }
+            var byFull: [String: [String]] = [:]
+            for path in group {
+                if cancel.isCancelled { return }
+                if let hash = ContentHash.hash(path, limit: nil) { byFull[hash, default: []].append(path) }
+            }
+            for same in byFull.values where same.count > 1 {
+                found.withLock { $0.append(DuplicateGroup(size: candidate.size, paths: same.sorted())) }
             }
         }
-        return found.current.sorted { $0.size * Int64($0.paths.count - 1) > $1.size * Int64($1.paths.count - 1) }
     }
 }
 
 public enum ContentHash {
-    /// Hex digest of the first `limit` bytes (or the whole file).
+    /// Hex digest of the first `limit` bytes (or the whole file), or nil if it can't be read completely.
+    ///
+    /// Reads with read(2) into one reused buffer: FileHandle returns autoreleased Data on macOS, and on
+    /// GCD worker threads nothing drains those until the whole duplicate search ends, so hashing tens of
+    /// gigabytes of duplicates would keep all of it in memory.
     public static func hash(_ path: String, limit: Int?) -> String? {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
-        defer { try? handle.close() }
+        let fd = open(path, O_RDONLY)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        let chunkSize = 1 << 20
+        let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: chunkSize, alignment: 16)
+        defer { buffer.deallocate() }
         var remaining = limit ?? Int.max
         #if canImport(CryptoKit)
         var hasher = SHA256()
@@ -260,12 +291,27 @@ public enum ContentHash {
         var hasher = FNV128()
         #endif
         while remaining > 0 {
-            let chunk = min(1 << 20, remaining)
-            guard let data = try? handle.read(upToCount: chunk), !data.isEmpty else { break }
-            hasher.update(data: data)
-            remaining -= data.count
+            let count = read(fd, buffer.baseAddress, min(chunkSize, remaining))
+            if count < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            if count == 0 { break }
+            hasher.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[0..<count]))
+            remaining -= count
         }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return hex(hasher.finalize())
+    }
+
+    static func hex<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
+        let digits = Array("0123456789abcdef".utf8)
+        var out: [UInt8] = []
+        out.reserveCapacity(64)
+        for byte in bytes {
+            out.append(digits[Int(byte >> 4)])
+            out.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: out, as: UTF8.self)
     }
 }
 
@@ -275,8 +321,8 @@ struct FNV128 {
     private var a: UInt64 = 0xcbf29ce484222325
     private var b: UInt64 = 0x84222325cbf29ce4
 
-    mutating func update(data: Data) {
-        for byte in data {
+    mutating func update(bufferPointer: UnsafeRawBufferPointer) {
+        for byte in bufferPointer {
             a = (a ^ UInt64(byte)) &* 0x100000001b3
             b = (b ^ UInt64(byte ^ 0x5a)) &* 0x100000001b3
         }

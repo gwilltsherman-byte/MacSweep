@@ -32,13 +32,13 @@ public enum DiskUsage {
                 guard let info = FS.info(child) else { continue }
                 if info.isDirectory {
                     if info.device != root.device { continue }
-                    total += info.allocated
+                    total = saturatingAdd(total, info.allocated)
                     stack.append(child)
                 } else {
                     if info.linkCount > 1 && !seen.insert(InodeKey(device: info.device, inode: info.inode)).inserted {
                         continue
                     }
-                    total += info.allocated
+                    total = saturatingAdd(total, info.allocated)
                 }
                 visited += 1
                 if visited & 0x3FF == 0, cancel?.isCancelled == true { return total }
@@ -47,11 +47,20 @@ public enum DiskUsage {
         return total
     }
 
+    static func saturatingAdd(_ a: Int64, _ b: Int64) -> Int64 {
+        let (sum, overflow) = a.addingReportingOverflow(b)
+        return overflow ? Int64.max : sum
+    }
+
+    /// The entry's name, read in place. readdir's records are only as long as their name, so copying the
+    /// fixed-size d_name field (1024 bytes on macOS) would read past the end of readdir's buffer.
     static func entryName(_ entry: UnsafeMutablePointer<dirent>) -> String {
-        var nameField = entry.pointee.d_name
-        return withUnsafeBytes(of: &nameField) { raw -> String in
-            let chars = raw.bindMemory(to: CChar.self)
-            return String(cString: chars.baseAddress!)
+        if let offset = MemoryLayout<dirent>.offset(of: \dirent.d_name) {
+            return String(cString: UnsafeRawPointer(entry).advanced(by: offset).assumingMemoryBound(to: CChar.self))
+        }
+        // Accessing the field through the pointer's pointee also works in place (no copy).
+        return withUnsafeMutablePointer(to: &entry.pointee.d_name) { field in
+            String(cString: UnsafeRawPointer(field).assumingMemoryBound(to: CChar.self))
         }
     }
 }

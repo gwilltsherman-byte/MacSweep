@@ -71,3 +71,39 @@ final class BasicsTests: XCTestCase {
         XCTAssertEqual(Shell.quote("it's here"), "'it'\\''s here'")
     }
 }
+
+final class RobustnessTests: XCTestCase {
+    func testAbsurdBlockCountsDoNotTrap() {
+        XCTAssertEqual(FileInfo.allocatedBytes(blocks: 8), 4096)
+        XCTAssertEqual(FileInfo.allocatedBytes(blocks: -1), 0)
+        XCTAssertEqual(FileInfo.allocatedBytes(blocks: Int64.max), FileInfo.maximumAllocation)
+        XCTAssertEqual(DiskUsage.saturatingAdd(Int64.max, 10), Int64.max)
+        XCTAssertEqual(DiskUsage.saturatingAdd(2, 3), 5)
+        XCTAssertEqual(DuplicateFinder.wasted(DuplicateGroup(size: Int64.max / 2, paths: ["a", "b", "c", "d"])), Int64.max)
+    }
+
+    func testLongAndUnicodeFileNamesAreReadCorrectly() throws {
+        let box = Sandbox()
+        let long = String(repeating: "n", count: 250) + ".bin"
+        box.file("tree/\(long)", bytes: 8192)
+        box.file("tree/héllo wörld ✓.txt", bytes: 8192)
+        box.file("tree/a", bytes: 8192)
+        let names = Set(try FileManager.default.contentsOfDirectory(atPath: box.path("tree")))
+        XCTAssertEqual(names, [long, "héllo wörld ✓.txt", "a"])
+        // Every file must be found by name (a wrong name would make lstat fail and the size come out short).
+        XCTAssertGreaterThanOrEqual(DiskUsage.allocatedSize(box.path("tree")), 3 * 8192)
+    }
+
+    func testContentHashMatchesContentAndHonoursLimit() {
+        let box = Sandbox()
+        let a = box.file("a.bin", bytes: 3_000_000, fill: 0x41)
+        let b = box.file("b.bin", bytes: 3_000_000, fill: 0x41)
+        let c = box.text("c.bin", String(repeating: "A", count: 65_536) + "different tail")
+        XCTAssertNotNil(ContentHash.hash(a, limit: nil))
+        XCTAssertEqual(ContentHash.hash(a, limit: nil), ContentHash.hash(b, limit: nil))
+        XCTAssertEqual(ContentHash.hash(a, limit: 65_536), ContentHash.hash(c, limit: 65_536))
+        XCTAssertNotEqual(ContentHash.hash(a, limit: nil), ContentHash.hash(c, limit: nil))
+        XCTAssertNil(ContentHash.hash(box.path("missing"), limit: nil))
+        XCTAssertEqual(ContentHash.hex([0x00, 0x0f, 0xa5, 0xff]), "000fa5ff")
+    }
+}

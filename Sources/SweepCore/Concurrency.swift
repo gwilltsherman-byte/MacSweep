@@ -1,5 +1,13 @@
 import Foundation
 
+#if !canImport(ObjectiveC)
+/// Linux has no autorelease pools (only used for test runs there); just run the body.
+@inline(__always)
+func autoreleasepool<Result>(invoking body: () throws -> Result) rethrows -> Result {
+    try body()
+}
+#endif
+
 /// A value guarded by a lock, safe to share between threads.
 public final class Locked<Value>: @unchecked Sendable {
     private var value: Value
@@ -41,7 +49,8 @@ public enum Background {
         return await run {
             let output = Locked([R?](repeating: nil, count: input.count))
             DispatchQueue.concurrentPerform(iterations: input.count) { index in
-                let result = transform(input[index])
+                // GCD worker threads don't drain autorelease pools per block; do it per item.
+                let result = autoreleasepool { transform(input[index]) }
                 output.withLock { $0[index] = result }
             }
             return output.current.map { $0! }

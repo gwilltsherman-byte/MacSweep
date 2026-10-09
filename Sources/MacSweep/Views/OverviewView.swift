@@ -18,7 +18,7 @@ struct OverviewView: View {
                         Text(section.rawValue).font(.title3.bold())
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                             ForEach(model.categories(in: section)) { category in
-                                CategoryCard(category: category) { selection = category.id }
+                                CategoryCard(category: category, model: model) { selection = category.id }
                             }
                         }
                     }
@@ -80,10 +80,11 @@ struct OverviewView: View {
     }
 }
 
+/// The model is passed in rather than looked up from the environment (see CheckCell).
 struct CategoryCard: View {
     let category: SweepCategory
+    @ObservedObject var model: AppModel
     let open: () -> Void
-    @EnvironmentObject private var model: AppModel
 
     var body: some View {
         let state = model.state(category.id)
