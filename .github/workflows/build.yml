@@ -46,6 +46,16 @@ jobs:
             sleep 3
           done
 
+      # TEMPORARY: print screenshots into the log for review.
+      - name: Print screenshots
+        if: always()
+        run: |
+          for f in build/screenshots/*.png; do
+            echo "BEGIN-IMAGE $(basename "$f")"
+            base64 -i "$f" | fold -w 4000
+            echo "END-IMAGE"
+          done
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
