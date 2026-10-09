@@ -107,3 +107,49 @@ final class RobustnessTests: XCTestCase {
         XCTAssertEqual(ContentHash.hex([0x00, 0x0f, 0xa5, 0xff]), "000fa5ff")
     }
 }
+
+final class ExplanationTests: XCTestCase {
+    func testEveryCategoryHasAPlainExplanation() {
+        for scanner in Catalog.all {
+            let help = scanner.category.help
+            XCTAssertFalse(help.whatItIs.isEmpty, scanner.category.id)
+            XCTAssertFalse(help.ifDeleted.isEmpty, "\(scanner.category.id) needs an 'if you delete it' explanation")
+            XCTAssertLessThan(help.whatItIs.count, 260, "\(scanner.category.id): keep it short enough to read at a glance")
+            XCTAssertLessThan(help.ifDeleted.count, 260, scanner.category.id)
+        }
+        XCTAssertEqual(Set(CategoryHelpText.all.keys), Set(Catalog.all.map(\.category.id)), "help texts and categories must match")
+    }
+
+    func testRecoveryExplainsHowToUndo() {
+        let home = "/Users/me"
+        let cache = Item(categoryID: "userCaches", title: "x", risk: .safe, note: "", paths: ["/Users/me/Library/Caches/x"])
+        XCTAssertTrue(RemovalPlan.recovery(for: cache, useTrash: true, home: home).contains("put it back"))
+        XCTAssertTrue(RemovalPlan.recovery(for: cache, useTrash: false, home: home).contains("can't be undone"))
+        XCTAssertEqual(RemovalPlan.kinds(for: cache, useTrash: true), [.trash])
+
+        let system = Item(categoryID: "systemCaches", title: "y", risk: .safe, note: "", paths: ["/Library/Caches/y"])
+        XCTAssertTrue(RemovalPlan.recovery(for: system, useTrash: true, home: home).contains("administrator password"))
+
+        let trashed = Item(categoryID: "trash", title: "z", risk: .safe, note: "", steps: [.deleteForever(["/Users/me/.Trash/z"])])
+        XCTAssertTrue(RemovalPlan.recovery(for: trashed, useTrash: true, home: home).contains("deleted for good"))
+        XCTAssertEqual(RemovalPlan.kinds(for: trashed, useTrash: true), [.permanent])
+
+        let formula = Item(id: "f", categoryID: "brewFormulae", title: "wget", risk: .review, note: "",
+                           steps: [.run(ShellCommand("/opt/homebrew/bin/brew", ["uninstall", "--formula"], targets: ["wget"], batchable: true))])
+        XCTAssertTrue(RemovalPlan.recovery(for: formula, useTrash: true, home: home).contains("Homebrew uninstalls it"))
+        XCTAssertEqual(RemovalPlan.kinds(for: formula, useTrash: true), [.uninstall])
+
+        // Stopping a helper first (allowFailure) isn't mentioned; only the file removal is.
+        let agent = Item(id: "a", categoryID: "launchItems", title: "agent", risk: .safe, note: "",
+                         steps: [.run(ShellCommand("/bin/launchctl", ["bootout"], allowFailure: true)),
+                                 .files(["/Users/me/Library/LaunchAgents/a.plist"])])
+        XCTAssertEqual(RemovalPlan.recovery(for: agent, useTrash: true, home: home),
+                       "It goes to the Trash, so you can put it back until you empty the Trash.")
+
+        let receipt = Item(id: "r", categoryID: "receipts", title: "pkg", risk: .caution, note: "",
+                           steps: [.adminScript(AdminScript(summary: "x", body: "true"))])
+        XCTAssertEqual(RemovalPlan.kinds(for: receipt, useTrash: true), [.admin])
+        XCTAssertEqual(Risk.review.label, "Check first")
+        XCTAssertEqual(Risk.caution.label, "Careful")
+    }
+}

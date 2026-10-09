@@ -237,7 +237,7 @@ final class AppModel: ObservableObject {
         }
         let caution = items.filter { $0.risk == .caution }.count
         if caution > 0 {
-            warnings.append("\(caution) item\(caution == 1 ? " is" : "s are") marked Caution and may contain your own data.")
+            warnings.append("\(caution) item\(caution == 1 ? " is" : "s are") rated Careful and may contain your own data.")
         }
         if items.contains(where: \.needsAdmin) || items.contains(where: { $0.paths.contains { $0.hasPrefix("/Library/") || $0.hasPrefix("/Applications/") || $0.hasPrefix("/usr/") || $0.hasPrefix("/private/") } }) {
             warnings.append("Some items may need your administrator password. Anything removed as administrator is deleted immediately, not moved to the Trash.")

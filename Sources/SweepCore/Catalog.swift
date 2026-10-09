@@ -4,7 +4,8 @@ import Foundation
 public enum Catalog {
     static func category(_ id: String, _ title: String, _ section: SweepSection, _ symbol: String, _ summary: String,
                          _ scan: @escaping @Sendable (ScanContext) async -> ScanResult) -> CategoryScanner {
-        CategoryScanner(SweepCategory(id: id, title: title, section: section, symbol: symbol, summary: summary)) { ctx in
+        CategoryScanner(SweepCategory(id: id, title: title, section: section, symbol: symbol, summary: summary,
+                                      help: CategoryHelpText.all[id])) { ctx in
             var result = await scan(ctx)
             // Item ids must be unique within a category (the UI relies on it).
             var seen = Set<String>()

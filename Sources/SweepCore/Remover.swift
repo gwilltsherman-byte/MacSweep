@@ -347,8 +347,102 @@ public final class Remover: @unchecked Sendable {
     }
 }
 
+/// How an item's removal can (or can't) be undone, for plain-language summaries.
+public enum RecoveryKind: Int, CaseIterable, Sendable, Hashable {
+    case trash, uninstall, permanent, admin
+}
+
 /// Human-readable list of exactly what removing some items will do.
 public enum RemovalPlan {
+    public static func kinds(for item: Item, useTrash: Bool) -> Set<RecoveryKind> {
+        var kinds = Set<RecoveryKind>()
+        for step in item.steps {
+            switch step {
+            case .files: kinds.insert(useTrash ? .trash : .permanent)
+            case .deleteForever: kinds.insert(.permanent)
+            case .run(let command): if !command.allowFailure { kinds.insert(.uninstall) }
+            case .runAsAdmin(let command): if !command.allowFailure { kinds.insert(.admin) }
+            case .adminScript: kinds.insert(.admin)
+            }
+        }
+        return kinds
+    }
+
+    /// One or two plain sentences answering "Can I undo this?".
+    public static func recovery(for item: Item, useTrash: Bool, home: String) -> String {
+        guard item.isRemovable else { return item.manualRemoval ?? "MacSweep can't remove this itself." }
+        var sentences: [String] = []
+        var toTrash = false
+        var forever = false
+        var outsideHome = false
+        for step in item.steps {
+            switch step {
+            case .files(let paths):
+                if useTrash { toTrash = true } else { forever = true }
+                if paths.contains(where: { !$0.hasPrefix(home + "/") }) { outsideHome = true }
+            case .deleteForever:
+                forever = true
+            case .run(let command):
+                if !command.allowFailure { sentences.append(commandRecovery(command)) }
+            case .runAsAdmin(let command):
+                if !command.allowFailure { sentences.append(commandRecovery(command) + " This needs an administrator password.") }
+            case .adminScript:
+                sentences.append("It's deleted with an administrator password and can't be put back from the Trash.")
+            }
+        }
+        if toTrash {
+            var text = "It goes to the Trash, so you can put it back until you empty the Trash."
+            if outsideHome {
+                text += " If macOS asks for an administrator password, those files are deleted for good instead."
+            }
+            sentences.insert(text, at: 0)
+        } else if forever {
+            sentences.insert("It's deleted for good straight away and can't be undone.", at: 0)
+        }
+        var seen = Set<String>()
+        return sentences.filter { seen.insert($0).inserted }.joined(separator: " ")
+    }
+
+    static func commandRecovery(_ command: ShellCommand) -> String {
+        let tool = FS.name(command.tool)
+        let first = command.arguments.first ?? ""
+        switch tool {
+        case "brew":
+            if first == "untap" { return "Homebrew removes this software list. You can add it back later with brew tap." }
+            if first == "cleanup" { return "Homebrew deletes the old versions and downloads. They can't be restored." }
+            return "Homebrew uninstalls it. You can install it again with Homebrew whenever you like."
+        case "port":
+            if first == "-N" { return "MacPorts deletes its leftover downloads. They can't be restored, but aren't needed." }
+            return "MacPorts uninstalls it. You can install it again with MacPorts."
+        case "npm": return "npm uninstalls it. You can install it again with npm."
+        case "cargo": return "cargo uninstalls it. You can install it again with cargo."
+        case "pipx": return "pipx uninstalls it. You can install it again with pipx."
+        case "go": return "Go deletes its download cache and downloads what it needs again later."
+        case "conda": return "Conda deletes its cached downloads. Your environments keep working."
+        case "docker":
+            switch first {
+            case "image": return "Docker deletes the image. It can be downloaded again."
+            case "volume": return "Docker deletes the volume and the data in it for good."
+            case "builder": return "Docker deletes its build cache. Builds are slower the first time afterwards."
+            default: return "Docker deletes the stopped container. Anything saved inside it is lost."
+            }
+        case "xcrun":
+            if command.arguments.contains("runtime") {
+                return "Xcode deletes the simulator system. You can download it again in Xcode's settings."
+            }
+            return "Xcode deletes the simulator and the apps in it. You can create a new one in Xcode."
+        case "ollama": return "Ollama deletes the model. You can download it again with Ollama."
+        case "osascript": return "It's removed from your login items. The app itself stays installed."
+        case "open": return "Steam opens and asks you to confirm before it uninstalls the game."
+        case "tmutil": return "Time Machine deletes this snapshot. It can't be restored."
+        case "atsutil": return "macOS rebuilds the font caches by itself."
+        case "nix-collect-garbage": return "Nix deletes packages nothing uses. They're downloaded again if needed."
+        case "code", "code-insiders", "cursor", "codium", "windsurf", "positron", "kiro":
+            return "The editor uninstalls the extension. You can install it again from the editor."
+        default: return "It's removed by running \(tool) and can't be put back from the Trash."
+        }
+    }
+
     public static func describe(_ items: [Item], useTrash: Bool, home: String) -> [String] {
         func show(_ path: String) -> String {
             path.hasPrefix(home + "/") ? "~" + String(path.dropFirst(home.count)) : path

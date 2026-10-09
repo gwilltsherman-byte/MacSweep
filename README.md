@@ -3,10 +3,22 @@
 A native macOS app that finds everything on your Mac that might be unnecessary
 and lets you look through it and remove what you don't want.
 
-Nothing is removed until you tick it and confirm. Every item has a rating
-(**Safe**, **Review** or **Caution**), a note saying what it is and what
-removing it does, and a "Show exactly what will happen" list of the actual
-operations. Files go to the Trash by default.
+Nothing is removed until you tick it and confirm. Files go to the Trash by
+default, so you can put them back.
+
+It's written for people who aren't sure what these files are:
+
+- A **New here?** guide on the Overview walks through cleaning up safely and
+  explains words like cache, log and leftovers.
+- Every category starts with a plain-language box: what these things are,
+  what happens if you delete them, and a tip.
+- Every item has a rating: **Safe** (rebuilt or downloaded again
+  automatically), **Check first** (probably not needed, but have a look) or
+  **Careful** (may be your own data or hard to get back).
+- Click an item, or its ⓘ button, to see what it is, what deleting it does,
+  whether you can undo it, and where it is.
+- Before anything happens, a summary says what goes to the Trash, what gets
+  uninstalled and what is deleted for good.
 
 ## What it looks for
 
@@ -41,7 +53,7 @@ operations. Files go to the Trash by default.
 
 **Developer**
 - Homebrew packages (unused dependencies are marked Safe, and anything other
-  packages need is marked Caution), Homebrew casks, old versions and
+  packages need is marked Careful), Homebrew casks, old versions and
   downloads (`brew cleanup`), and taps you don't use
 - MacPorts ports, inactive versions and build leftovers
 - Project build folders anywhere in your home folder: `node_modules`, Rust
@@ -109,8 +121,8 @@ the first time you open a downloaded copy, right-click it and choose
 ## How it keeps you safe
 
 - Nothing is pre-selected and nothing happens without the confirmation sheet,
-  which lists every item, warns about running apps, Caution items and
-  commands that can't be undone, and requires an extra tick for Caution items.
+  which lists every item, warns about running apps, Careful items and
+  commands that can't be undone, and requires an extra tick for Careful items.
 - A hard-coded list of locations can never be deleted whatever a scanner
   says: `/System`, `/usr` (except `/usr/local/…`), `/bin`, `/etc`, your home
   folder and its top-level folders, `~/Library/…` folders themselves,

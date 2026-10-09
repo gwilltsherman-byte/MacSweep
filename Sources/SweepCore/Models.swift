@@ -11,20 +11,42 @@ public enum Risk: Int, Comparable, CaseIterable, Sendable, Hashable {
     public var label: String {
         switch self {
         case .safe: return "Safe"
-        case .review: return "Review"
-        case .caution: return "Caution"
+        case .review: return "Check first"
+        case .caution: return "Careful"
+        }
+    }
+
+    /// A few words for legends ("Safe = …").
+    public var meaning: String {
+        switch self {
+        case .safe: return "rebuilt or downloaded again automatically"
+        case .review: return "probably not needed, but have a look"
+        case .caution: return "may be your own data or hard to get back"
         }
     }
 
     public var explanation: String {
         switch self {
         case .safe:
-            return "Rebuilt or re-downloaded automatically when it's needed again."
+            return "Safe to delete. Your Mac or the app makes it again automatically if it's ever needed."
         case .review:
-            return "Probably unnecessary, but take a look first. You might still want it."
+            return "Probably not needed, but check first: only you know whether you still use it."
         case .caution:
-            return "May hold your own data or be hard to get back. Remove it only if you're sure."
+            return "Be careful. It may hold your own data (photos, messages, projects) or be hard to get back. Delete it only if you're sure."
         }
+    }
+}
+
+/// Plain-language explanation of a category for people who aren't sure what these files are.
+public struct CategoryHelp: Hashable, Sendable {
+    public let whatItIs: String
+    public let ifDeleted: String
+    public let tip: String?
+
+    public init(_ whatItIs: String, ifDeleted: String, tip: String? = nil) {
+        self.whatItIs = whatItIs
+        self.ifDeleted = ifDeleted
+        self.tip = tip
     }
 }
 
@@ -43,13 +65,16 @@ public struct SweepCategory: Identifiable, Hashable, Sendable {
     public let section: SweepSection
     public let symbol: String
     public let summary: String
+    public let help: CategoryHelp
 
-    public init(id: String, title: String, section: SweepSection, symbol: String, summary: String) {
+    public init(id: String, title: String, section: SweepSection, symbol: String, summary: String,
+                help: CategoryHelp? = nil) {
         self.id = id
         self.title = title
         self.section = section
         self.symbol = symbol
         self.summary = summary
+        self.help = help ?? CategoryHelp(summary, ifDeleted: "")
     }
 }
 

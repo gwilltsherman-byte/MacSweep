@@ -137,3 +137,77 @@ struct FullDiskAccessCard: View {
         .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 }
+
+/// One line of plain-language explanation with a bold lead-in ("What they are: …").
+struct ExplainRow: View {
+    let symbol: String
+    let title: String
+    let text: String
+    var lines: Int? = 4
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: symbol)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            (Text(title).bold() + Text(" ") + Text(text))
+                .lineLimit(lines)
+        }
+    }
+}
+
+/// "Ratings: Safe = … · Check first = … · Careful = …"
+struct RiskLegend: View {
+    var body: some View {
+        Risk.allCases.reduce(Text("Ratings: ").bold()) { text, risk in
+            text + Text(risk.label).bold().foregroundColor(risk.color)
+                + Text(" means \(risk.meaning)" + (risk == Risk.allCases.last ? "." : " · "))
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(3)
+    }
+}
+
+/// The explanation at the top of every category page, for people who aren't sure what these files are.
+struct CategoryHelpBox: View {
+    let help: CategoryHelp
+    @AppStorage("showCategoryHelp") private var expanded = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.bold())
+                        .frame(width: 12)
+                    Text("What are these, and is it safe to delete them?")
+                        .font(.callout.bold())
+                    if !expanded { Text("Show").font(.callout).foregroundStyle(.secondary) }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                // No fixedSize here (see CategoryView): the line limits keep the page's minimum height sane.
+                ExplainRow(symbol: "questionmark.circle", title: "What they are:", text: help.whatItIs)
+                ExplainRow(symbol: "trash", title: "If you delete them:", text: help.ifDeleted)
+                if let tip = help.tip {
+                    ExplainRow(symbol: "lightbulb", title: "Tip:", text: tip, lines: 3)
+                }
+                RiskLegend()
+                    .padding(.leading, 24)
+                Text("Click any item, or its \(Image(systemName: "info.circle")) button, to see exactly what it is and whether you can undo deleting it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .padding(.leading, 24)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+    }
+}

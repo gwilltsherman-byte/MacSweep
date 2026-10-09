@@ -53,8 +53,8 @@ struct CategoryView: View {
                     table(rows)
                     if page.focused.count == 1, let id = page.focused.first, let item = model.item(id) {
                         Divider()
-                        ItemDetailView(item: item)
-                            .frame(height: 210)
+                        ItemDetailView(item: item, category: category)
+                            .frame(height: 230)
                     }
                 }
             }
@@ -71,11 +71,9 @@ struct CategoryView: View {
                     Text(Fmt.count(model.visibleItems(category.id).count, "item")).foregroundStyle(.secondary)
                 }
             }
-            // No fixedSize here: outside a scroll view it would make the page's minimum height enormous
-            // when the split view measures it at a narrow width.
-            Text(category.summary)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
+            // No fixedSize in the header: outside a scroll view it would make the page's minimum height
+            // enormous when the split view measures it at a narrow width.
+            CategoryHelpBox(help: category.help)
             ForEach(state.notes, id: \.self) { note in
                 InfoBanner(text: note, symbol: "exclamationmark.circle", tint: .orange)
             }
@@ -120,17 +118,9 @@ struct CategoryView: View {
             }
             .width(24)
             TableColumn("Name", value: \Item.title) { item in
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.title).lineLimit(1)
-                    Text(item.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .help(item.note)
+                NameCell(item: item, page: page)
             }
-            .width(min: 170, ideal: 220)
+            .width(min: 190, ideal: 240)
             TableColumn("Rating", value: \Item.risk) { item in
                 RiskBadge(risk: item.risk)
             }
@@ -201,59 +191,96 @@ struct CheckCell: View {
     }
 }
 
+/// Item name with an ⓘ button that opens its explanation below the table.
+struct NameCell: View {
+    let item: Item
+    @ObservedObject var page: CategoryPageState
+
+    var body: some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title).lineLimit(1)
+                Text(item.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 4)
+            Button {
+                page.focused = [item.id]
+            } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("What is this, and what happens if I delete it?")
+        }
+        .help(item.note)
+    }
+}
+
+/// Everything a beginner needs to decide about one item, in plain language.
 struct ItemDetailView: View {
     let item: Item
+    let category: SweepCategory?
     @AppStorage("useTrash") private var useTrash = true
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(item.title).font(.headline).textSelection(.enabled)
                     RiskBadge(risk: item.risk)
                     Spacer()
                     Text(Fmt.bytes(item.size)).font(.headline.monospacedDigit())
                 }
-                Text(item.note).fixedSize(horizontal: false, vertical: true)
-                Text("\(item.risk.label): \(item.risk.explanation)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if let manual = item.manualRemoval {
-                    InfoBanner(text: manual, symbol: "hand.raised", tint: .orange)
-                }
+                section("What is it?", item.note.isEmpty ? (category?.help.whatItIs ?? "") : item.note)
+                section("What happens if you delete it?", item.risk.explanation)
+                section("Can you undo it?", RemovalPlan.recovery(for: item, useTrash: useTrash, home: NSHomeDirectory()))
                 if !item.paths.isEmpty {
-                    Text("Location\(item.paths.count == 1 ? "" : "s")").font(.caption.bold()).padding(.top, 4)
-                    ForEach(Array(item.paths.prefix(25)), id: \.self) { path in
-                        HStack(spacing: 6) {
-                            Text(Fmt.path(path))
-                                .font(.caption.monospaced())
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .textSelection(.enabled)
-                            Button {
-                                AppModel.reveal(path)
-                            } label: {
-                                Image(systemName: "arrow.right.circle")
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Where is it?").font(.subheadline.bold())
+                        ForEach(Array(item.paths.prefix(25)), id: \.self) { path in
+                            HStack(spacing: 6) {
+                                Text(Fmt.path(path))
+                                    .font(.caption.monospaced())
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .textSelection(.enabled)
+                                Button("Show in Finder") { AppModel.reveal(path) }
+                                    .buttonStyle(.link)
+                                    .font(.caption)
                             }
-                            .buttonStyle(.borderless)
-                            .help("Show in Finder")
+                        }
+                        if item.paths.count > 25 {
+                            Text("…and \(item.paths.count - 25) more").font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    if item.paths.count > 25 {
-                        Text("…and \(item.paths.count - 25) more").font(.caption).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("Technical details") {
+                    let plan = RemovalPlan.describe([item], useTrash: useTrash, home: NSHomeDirectory())
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(plan.prefix(15)), id: \.self) { line in
+                            Text(line).font(.caption.monospaced()).textSelection(.enabled)
+                        }
+                        if plan.count > 15 {
+                            Text("…and \(plan.count - 15) more steps").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text("What removing it does").font(.caption.bold()).padding(.top, 4)
-                let plan = RemovalPlan.describe([item], useTrash: useTrash, home: NSHomeDirectory())
-                ForEach(Array(plan.prefix(15)), id: \.self) { line in
-                    Text(line).font(.caption.monospaced()).textSelection(.enabled)
-                }
-                if plan.count > 15 {
-                    Text("…and \(plan.count - 15) more steps").font(.caption).foregroundStyle(.secondary)
-                }
+                .font(.caption)
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func section(_ title: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.subheadline.bold())
+            // Inside the scroll view, so fixedSize is safe here.
+            Text(text).fixedSize(horizontal: false, vertical: true)
         }
     }
 }

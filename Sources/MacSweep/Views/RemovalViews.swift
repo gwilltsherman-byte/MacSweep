@@ -31,6 +31,8 @@ struct ConfirmRemovalView: View {
                 }
             }
 
+            outcomeSummary(items)
+
             if !warnings.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(warnings, id: \.self) { warning in
@@ -46,20 +48,27 @@ struct ConfirmRemovalView: View {
                 ForEach(categories) { category in
                     Section(category.title) {
                         ForEach(groups[category.id] ?? []) { item in
-                            HStack {
-                                Text(item.title).lineLimit(1)
-                                if model.isRunning(item) { Chip(text: "Running", tint: .red) }
-                                Spacer()
-                                RiskBadge(risk: item.risk)
-                                Text(Fmt.bytes(item.size))
-                                    .monospacedDigit()
-                                    .frame(width: 80, alignment: .trailing)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(item.title).lineLimit(1)
+                                    if model.isRunning(item) { Chip(text: "Running", tint: .red) }
+                                    Spacer()
+                                    RiskBadge(risk: item.risk)
+                                    Text(Fmt.bytes(item.size))
+                                        .monospacedDigit()
+                                        .frame(width: 80, alignment: .trailing)
+                                }
+                                Text(RemovalPlan.recovery(for: item, useTrash: useTrash, home: NSHomeDirectory()))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
                             }
+                            .help(item.note)
                         }
                     }
                 }
             }
-            .frame(height: 230)
+            .frame(height: 250)
 
             DisclosureGroup("Show exactly what will happen", isExpanded: $confirmation.showPlan) {
                 ScrollView {
@@ -73,7 +82,8 @@ struct ConfirmRemovalView: View {
 
             Toggle("Move files to the Trash so they can be put back", isOn: $useTrash)
             if needsAcknowledgement {
-                Toggle("I understand that items marked Caution may contain my own data", isOn: $confirmation.acknowledged)
+                Toggle("I understand that items rated Careful may contain my own data and can't always be recovered",
+                       isOn: $confirmation.acknowledged)
             }
 
             HStack {
@@ -91,7 +101,34 @@ struct ConfirmRemovalView: View {
             }
         }
         .padding(20)
-        .frame(width: 660)
+        .frame(width: 680)
+    }
+
+    /// Plain-language summary of what happens to everything selected, grouped by whether it can be undone.
+    private func outcomeSummary(_ items: [Item]) -> some View {
+        let kinds = items.map { RemovalPlan.kinds(for: $0, useTrash: useTrash) }
+        func count(_ kind: RecoveryKind) -> Int { kinds.filter { $0.contains(kind) }.count }
+        let trash = count(.trash), uninstall = count(.uninstall), permanent = count(.permanent), admin = count(.admin)
+        return VStack(alignment: .leading, spacing: 5) {
+            Text("What will happen").font(.headline)
+            if trash > 0 {
+                ExplainRow(symbol: "arrow.uturn.backward.circle", title: "\(Fmt.count(trash, "item")) go to the Trash.",
+                           text: "You can put them back from the Trash until you empty it.")
+            }
+            if uninstall > 0 {
+                ExplainRow(symbol: "shippingbox", title: "\(Fmt.count(uninstall, "item")) will be uninstalled",
+                           text: "by the tool that installed them (Homebrew, npm, Docker, Xcode…). You can install them again later.")
+            }
+            if permanent > 0 {
+                ExplainRow(symbol: "xmark.bin", title: "\(Fmt.count(permanent, "item")) will be deleted for good.",
+                           text: "These can't be put back (things already in the Trash, or tiny files like .DS_Store).")
+            }
+            if admin > 0 {
+                ExplainRow(symbol: "lock", title: "\(Fmt.count(admin, "item")) need an administrator password",
+                           text: "and are deleted for good rather than moved to the Trash.")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
