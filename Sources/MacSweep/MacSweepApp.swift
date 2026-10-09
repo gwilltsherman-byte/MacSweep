@@ -25,7 +25,7 @@ struct MacSweepApp: App {
                 .environmentObject(model)
                 .frame(minWidth: 980, minHeight: 620)
         }
-        .defaultSize(width: 1200, height: 840)
+        .defaultSize(width: 1120, height: 780)
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandMenu("Scan") {

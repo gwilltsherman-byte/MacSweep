@@ -119,6 +119,18 @@ final class ScannerTests: XCTestCase {
         XCTAssertTrue(clutter.items.allSatisfy { item in item.steps.allSatisfy { if case .deleteForever = $0 { return true } else { return false } } })
     }
 
+    func testNodeInstallationsAreLeftAlone() async {
+        let box = Sandbox()
+        box.file("home/tools/node-v20/bin/node", bytes: 5000)
+        box.file("home/tools/node-v20/lib/node_modules/npm/node_modules/abbrev/index.js", bytes: 5000)
+        box.file("home/tools/node-v20/lib/node_modules/npm/package.json", bytes: 100)
+        box.text("home/code/app/package.json", "{}")
+        box.file("home/code/app/node_modules/left-pad/index.js", bytes: 5000)
+        box.file("home/code/app/node_modules/left-pad/node_modules/inner/index.js", bytes: 5000)
+        let projects = await run("projects", context(box))
+        XCTAssertEqual(titles(projects), ["app › node_modules"], "npm's own files and nested node_modules must not be listed")
+    }
+
     func testLibraryScanners() async {
         let box = makeHome()
         let ctx = context(box)

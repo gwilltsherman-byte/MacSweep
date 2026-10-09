@@ -110,6 +110,9 @@ public struct HomeWalker {
                     result.artifacts.append(ArtifactHit(path: path, kind: kind))
                     continue
                 }
+                // Never look inside node_modules: everything in there belongs to its packages, e.g. npm's own
+                // files inside a Node.js installation (whose lib/node_modules isn't offered for removal).
+                if name == "node_modules" { continue }
                 if name.hasPrefix(".") { continue }
                 if HomeWalker.packageExtensions.contains(FS.ext(name)) { continue }
                 stack.append(path)
