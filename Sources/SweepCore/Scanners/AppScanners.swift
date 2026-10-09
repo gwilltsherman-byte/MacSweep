@@ -135,10 +135,13 @@ enum AppScanners {
                 : "Also removes \(info.leftovers.count) settings/support item\(info.leftovers.count == 1 ? "" : "s") it left in your Library (\(ByteCountFormatter.string(fromByteCount: info.leftoverSize, countStyle: .file))).")
             if cask != nil { note += " Installed with Homebrew, so Homebrew does the uninstall." }
             if !info.jobs.isEmpty { note += " Its background helpers are stopped first so they can't put files back." }
-            // The app's own windows are covered by "Quit these apps first"; anything else running from it isn't.
+            // While the app is open, it and the helpers inside it are covered by "Quit these apps first". A helper
+            // that runs from the app on its own (a menu-bar or login item) isn't, nor is anything in its leftovers.
             let stopped = Set(info.jobs.compactMap(\.program))
-            var recreators = running.programs(inside: [app.path] + info.leftovers, except: stopped)
-                .filter { !$0.identifier.hasPrefix(app.path + "/Contents/MacOS/") }
+            let fromBundle = running.programs(inside: [app.path], except: stopped)
+            let appIsOpen = fromBundle.contains { $0.identifier.hasPrefix(app.path + "/Contents/MacOS/") }
+            var recreators = appIsOpen ? [] : fromBundle
+            recreators += running.programs(inside: info.leftovers, except: stopped)
             recreators += running.extensions(where: { info.systemExtensions.contains($0.lowercased()) })
             if !recreators.isEmpty {
                 badges.append("Still running")
