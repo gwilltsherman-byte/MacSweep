@@ -110,6 +110,12 @@ public final class ScanContext: @unchecked Sendable {
         return await memo.value("brew") { await Homebrew.snapshot(shell: shell) }
     }
 
+    /// Programs and system extensions running right now.
+    public func running() async -> RunningSoftware {
+        let shell = self.shell
+        return await memo.value("running") { await Background.run { RunningSoftware.snapshot(shell: shell) } }
+    }
+
     public func docker() async -> DockerSnapshot? {
         let shell = self.shell
         return await memo.value("docker") { await Docker.snapshot(shell: shell) }

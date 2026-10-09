@@ -15,6 +15,7 @@ struct PathCandidate: Sendable {
     var extraPaths: [String] = []
     var keepPath: String? = nil
     var id: String? = nil
+    var recreators: [Recreator] = []
 }
 
 enum Build {
@@ -37,7 +38,8 @@ enum Build {
         let paths = [c.path] + c.extraPaths
         return Item(id: c.id, categoryID: category, title: c.title, detail: c.detail ?? ctx.display(c.path), size: size,
                     risk: c.risk, note: c.note, paths: paths, date: c.date ?? FS.modified(c.path), dateKind: c.dateKind,
-                    badges: c.badges, bundleID: c.bundleID, keepPath: c.keepPath, steps: c.steps)
+                    badges: c.badges, bundleID: c.bundleID, keepPath: c.keepPath, steps: c.steps,
+                    recreators: c.recreators)
     }
 }
 

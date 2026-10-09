@@ -8,13 +8,20 @@ import Glibc
 public struct RemovalOptions: Sendable {
     /// Move files to the Trash (recoverable) instead of deleting them straight away.
     public var useTrash: Bool
+    /// How long to wait before checking whether something running put the removed files back.
+    public var recheckDelay: TimeInterval
 
-    public init(useTrash: Bool) { self.useTrash = useTrash }
+    public init(useTrash: Bool, recheckDelay: TimeInterval = 2) {
+        self.useTrash = useTrash
+        self.recheckDelay = recheckDelay
+    }
 }
 
 public struct RemovalOutcome: Sendable {
     public var removed: [String] = []
     public var failures: [String: String] = [:]
+    /// Removed items whose files were back straight away, with the paths that reappeared.
+    public var cameBack: [String: [String]] = [:]
     public var freedEstimate: Int64 = 0
 
     public init() {}
@@ -185,8 +192,25 @@ public final class Remover: @unchecked Sendable {
             }
         }
         outcome.freedEstimate = SizeMath.uniqueTotal(removedItems)
+        outcome.cameBack = recheck(removedItems, after: options.recheckDelay)
         progress("Done")
         return outcome
+    }
+
+    /// Software that's still running (an app, a background helper, a system extension) often recreates its
+    /// folders the moment they're deleted. Look again after a moment so that isn't reported as a success.
+    /// Things rated Safe (caches, logs) are rebuilt automatically by design, so they aren't checked.
+    private func recheck(_ items: [Item], after delay: TimeInterval) -> [String: [String]] {
+        let watched = items.filter { $0.risk != .safe }.map { ($0.id, $0.steps.flatMap(\.paths)) }.filter { !$0.1.isEmpty }
+        guard !watched.isEmpty else { return [:] }
+        progress("Checking that nothing came back…")
+        if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+        var back: [String: [String]] = [:]
+        for (id, paths) in watched {
+            let reappeared = paths.filter(FS.exists)
+            if !reappeared.isEmpty { back[id] = reappeared }
+        }
+        return back
     }
 
     // MARK: Commands
@@ -401,6 +425,29 @@ public enum RemovalPlan {
         }
         var seen = Set<String>()
         return sentences.filter { seen.insert($0).inserted }.joined(separator: " ")
+    }
+
+    /// What keeps putting an item's files back, and what to do about it, in plain language.
+    public static func comesBack(_ recreators: [Recreator]) -> String {
+        func names(_ list: [Recreator]) -> String { list.map(\.name).joined(separator: ", ") }
+        let programs = recreators.filter { $0.kind == .program }
+        let extensions = recreators.filter { $0.kind == .systemExtension }
+        let active = extensions.filter { !$0.removedOnRestart }
+        let pending = extensions.filter(\.removedOnRestart)
+        var sentences: [String] = []
+        if !active.isEmpty {
+            sentences.append("Its system extension (\(names(active))) is still running. macOS keeps system extensions running after their app is deleted, and MacSweep can't stop them. Use the app's own uninstaller (reinstall the app first if it's already gone), or turn the extension off in System Settings › General › Login Items & Extensions. Until then its files come back as soon as they're removed.")
+        }
+        if !pending.isEmpty {
+            sentences.append("macOS removes its system extension (\(names(pending))) when you restart your Mac. Restart first, or its files come back as soon as they're removed.")
+        }
+        if !programs.isEmpty {
+            sentences.append("Still running from these files: \(names(programs)). Quit \(programs.count == 1 ? "it" : "them") first, or the files may come back as soon as they're removed.")
+        }
+        if sentences.isEmpty {
+            sentences.append("Something that's still running made them again, usually the app itself or one of its background helpers. Quit it, or restart your Mac, then remove them again.")
+        }
+        return sentences.joined(separator: " ")
     }
 
     static func commandRecovery(_ command: ShellCommand) -> String {

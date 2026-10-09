@@ -6,6 +6,7 @@ enum AppScanners {
     /// Library folders where apps leave settings, caches and data behind.
     struct LibraryIndex: Sendable {
         var entries: [String: [String]] = [:]
+        var jobs: [Launchd.Job] = []
 
         static let userDirs = [
             "Application Support", "Caches", "Preferences", "Preferences/ByHost", "Containers", "Group Containers",
@@ -22,10 +23,11 @@ enum AppScanners {
                 entries[path] = FS.list(path)
             }
             for path in LibraryIndex.systemDirs { entries[path] = FS.list(path) }
+            jobs = Launchd.jobs(home: home)
         }
 
-        /// Support files that belong to an app with this bundle id and name.
-        func leftovers(bundleID: String?, appName: String, home: String) -> [String] {
+        /// Support files that belong to an app with this bundle id, name and location.
+        func leftovers(bundleID: String?, appName: String, appPath: String) -> [String] {
             var found: [String] = []
             let name = appName.lowercased()
             let id = bundleID?.lowercased()
@@ -58,6 +60,14 @@ enum AppScanners {
                     if match { found.append(dir + "/" + entry) }
                 }
             }
+            // Launch agents and daemons whose labels don't follow the app's id but that run a program
+            // from inside the app or its support folders.
+            let roots = [appPath] + found.filter { !Launchd.isJobPlist($0) }
+            for job in jobs where !found.contains(job.plist) {
+                if let program = job.program, roots.contains(where: { program == $0 || program.hasPrefix($0 + "/") }) {
+                    found.append(job.plist)
+                }
+            }
             return found.sorted()
         }
     }
@@ -75,6 +85,7 @@ enum AppScanners {
         }
         let home = ctx.home
         let index = await Background.run { LibraryIndex(home: home) }
+        let running = await ctx.running()
         let token = ctx.cancel
 
         struct Measured: Sendable {
@@ -82,14 +93,20 @@ enum AppScanners {
             var appSize: Int64
             var leftoverSize: Int64
             var lastUsed: Date?
+            /// Launch agents and daemons to stop before anything is deleted.
+            var jobs: [Launchd.Job]
+            var systemExtensions: [String]
         }
         let measured: [Measured] = await Background.map(apps) { app in
-            let leftovers = index.leftovers(bundleID: app.bundleID, appName: app.name, home: home)
+            let leftovers = index.leftovers(bundleID: app.bundleID, appName: app.name, appPath: app.path)
+            let extensionsDir = app.path + "/Contents/Library/SystemExtensions"
             return Measured(
                 leftovers: leftovers,
                 appSize: DiskUsage.allocatedSize(app.path, cancel: token),
                 leftoverSize: leftovers.reduce(Int64(0)) { $0 + DiskUsage.allocatedSize($1, cancel: token) },
-                lastUsed: AppCatalog.lastUsed(app.path)
+                lastUsed: AppCatalog.lastUsed(app.path),
+                jobs: leftovers.filter(Launchd.isJobPlist).compactMap(Launchd.read) + Launchd.bundledJobs(in: app.path),
+                systemExtensions: FS.list(extensionsDir).compactMap { FS.bundleID(extensionsDir + "/" + $0)?.lowercased() }
             )
         }
 
@@ -105,23 +122,34 @@ enum AppScanners {
             } else {
                 badges += Badges.age(info.lastUsed)
             }
-            var steps: [RemovalStep] = []
+            // Background helpers keep running after their files are deleted and recreate them, so stop them first.
+            var steps = Launchd.stopSteps(info.jobs, uid: ctx.uid)
             if let cask {
                 steps.append(.run(ShellCommand(cask.brew, ["uninstall", "--cask"], targets: [cask.token], batchable: true)))
                 if !info.leftovers.isEmpty { steps.append(.files(info.leftovers)) }
             } else {
                 steps.append(.files([app.path] + info.leftovers))
             }
-            let leftoverText = info.leftovers.isEmpty
+            var note = "Uninstalls the app completely. " + (info.leftovers.isEmpty
                 ? "No settings or support files were found for it."
-                : "Also removes \(info.leftovers.count) settings/support item\(info.leftovers.count == 1 ? "" : "s") it left in your Library (\(ByteCountFormatter.string(fromByteCount: info.leftoverSize, countStyle: .file)))."
+                : "Also removes \(info.leftovers.count) settings/support item\(info.leftovers.count == 1 ? "" : "s") it left in your Library (\(ByteCountFormatter.string(fromByteCount: info.leftoverSize, countStyle: .file))).")
+            if cask != nil { note += " Installed with Homebrew, so Homebrew does the uninstall." }
+            if !info.jobs.isEmpty { note += " Its background helpers are stopped first so they can't put files back." }
+            // The app's own windows are covered by "Quit these apps first"; anything else running from it isn't.
+            let stopped = Set(info.jobs.compactMap(\.program))
+            var recreators = running.programs(inside: [app.path] + info.leftovers, except: stopped)
+                .filter { !$0.identifier.hasPrefix(app.path + "/Contents/MacOS/") }
+            recreators += running.extensions(where: { info.systemExtensions.contains($0.lowercased()) })
+            if !recreators.isEmpty {
+                badges.append("Still running")
+                note += " " + RemovalPlan.comesBack(recreators)
+            }
             items.append(Item(
                 id: "\(id)|\(app.path)", categoryID: id, title: app.name,
                 detail: [app.version.map { "Version \($0)" }, ctx.display(FS.parent(app.path))].compactMap { $0 }.joined(separator: " · "),
-                size: info.appSize + info.leftoverSize, risk: .review,
-                note: "Uninstalls the app completely. " + leftoverText + (cask != nil ? " Installed with Homebrew, so Homebrew does the uninstall." : ""),
+                size: info.appSize + info.leftoverSize, risk: .review, note: note,
                 paths: [app.path] + info.leftovers, date: info.lastUsed, dateKind: .lastUsed, badges: badges,
-                bundleID: app.bundleID, steps: steps
+                bundleID: app.bundleID, steps: steps, recreators: recreators
             ))
         }
         return ScanResult(items.bySize())
@@ -150,6 +178,20 @@ enum AppScanners {
     /// A bundle-id-shaped name: three or more dot-separated parts without spaces.
     static func looksLikeBundleID(_ name: String) -> Bool {
         !name.contains(" ") && name.split(separator: ".").count >= 3
+    }
+
+    /// True when two reverse-DNS identifiers belong to the same product: they share their first three parts
+    /// (com.malwarebytes.mbam.frontend and com.malwarebytes.mbam.rtprotection.daemon, but not com.google.Chrome
+    /// and com.google.keystone).
+    static func sameProduct(_ a: String, _ b: String) -> Bool {
+        let x = a.lowercased().split(separator: "."), y = b.lowercased().split(separator: ".")
+        return zip(x, y).prefix { $0 == $1 }.count >= 3
+    }
+
+    /// True when a part of a reverse-DNS identifier after the first is this (normalized) name, e.g.
+    /// com.malwarebytes.mbam.sysext for a folder called Malwarebytes.
+    static func identifier(_ id: String, isNamed name: String) -> Bool {
+        name.count >= 4 && id.split(separator: ".").dropFirst().contains { KnownSoftware.normalize(String($0)) == name }
     }
 
     static func ownerID(for entry: String, in dirName: String) -> String? {
@@ -219,10 +261,35 @@ enum AppScanners {
             }
         }
 
+        /// Whether an identifier (a launch job's label, a system extension's) belongs to the software of a group.
+        func belongs(_ identifier: String, to key: String, plainName: Bool) -> Bool {
+            plainName ? AppScanners.identifier(identifier, isNamed: String(key.dropFirst(5))) : sameProduct(identifier, key)
+        }
+
+        // A deleted app's launch agents and daemons keep running and put its folders straight back,
+        // so they're stopped and removed along with them. Jobs of installed software are never touched.
+        var jobsByGroup: [String: [Launchd.Job]] = [:]
+        let keys = groups.keys.sorted()
+        for job in Launchd.jobs(home: ctx.home) where !known.matches(bundleLike: job.label) {
+            let runsFromGroup = keys.first { key in
+                guard let program = job.program else { return false }
+                return groups[key]!.paths.contains { program.hasPrefix($0 + "/") }
+            }
+            let owner = runsFromGroup ?? keys.first { belongs(job.label, to: $0, plainName: groups[$0]!.plainName) }
+            if let owner { jobsByGroup[owner, default: []].append(job) }
+        }
+
+        let running = await ctx.running()
         var candidates: [PathCandidate] = []
         for (key, group) in groups {
+            let jobs = jobsByGroup[key] ?? []
+            var paths = group.paths + jobs.map(\.plist)
+            for case let program? in jobs.map(\.program)
+            where program.hasPrefix("/Library/PrivilegedHelperTools/") && FS.exists(program) && !paths.contains(program) {
+                paths.append(program)
+            }
             let vendor = !group.plainName && known.vendorInstalled(group.title)
-            let note: String
+            var note: String
             if group.plainName {
                 note = "No installed app matches this folder's name. It may belong to an app you removed, or to a command-line tool or plug-in, so check before deleting."
             } else if vendor {
@@ -231,31 +298,28 @@ enum AppScanners {
                 note = "No installed app uses this identifier. It's most likely left over from an app you deleted."
             }
             var badges = group.plainName ? ["Name match"] : ["No matching app"]
-            if group.paths.contains(where: { $0.hasPrefix("/Library/") }) { badges.append("All users") }
+            if paths.contains(where: { $0.hasPrefix("/Library/") }) { badges.append("All users") }
+            if !jobs.isEmpty {
+                note += " Its background \(jobs.count == 1 ? "helper is" : "helpers are") stopped and removed too (\(jobs.map(\.label).joined(separator: ", "))), so \(jobs.count == 1 ? "it" : "they") can't put these files back."
+            }
+            var recreators = running.programs(inside: paths, except: Set(jobs.compactMap(\.program)))
+            recreators += running.extensions(where: { belongs($0, to: key, plainName: group.plainName) })
+            if !recreators.isEmpty {
+                badges.append("Still running")
+                note += " " + RemovalPlan.comesBack(recreators)
+            }
             candidates.append(PathCandidate(
-                path: group.paths[0], title: group.title,
-                detail: group.paths.count == 1 ? ctx.display(group.paths[0]) : "\(group.paths.count) locations",
-                risk: .review, note: note, badges: badges, extraPaths: Array(group.paths.dropFirst()),
-                id: "\(id)|\(key)"
+                path: paths[0], title: group.title,
+                detail: paths.count == 1 ? ctx.display(paths[0]) : "\(paths.count) locations",
+                risk: .review, note: note, badges: badges,
+                steps: Launchd.stopSteps(jobs, uid: ctx.uid) + [.files(paths)],
+                extraPaths: Array(paths.dropFirst()), id: "\(id)|\(key)", recreators: recreators
             ))
         }
         return ScanResult(await Build.items(candidates, category: id, ctx: ctx).bySize())
     }
 
     // MARK: Launch agents, daemons & login items
-
-    struct LaunchJob: Sendable {
-        var label: String
-        var program: String?
-        var disabled: Bool
-    }
-
-    static func readLaunchJob(_ path: String) -> LaunchJob? {
-        guard let plist = FS.readPlist(path) else { return nil }
-        let label = plist["Label"] as? String ?? FS.stripExt(FS.name(path))
-        let program = (plist["Program"] as? String) ?? (plist["ProgramArguments"] as? [String])?.first
-        return LaunchJob(label: label, program: program, disabled: plist["Disabled"] as? Bool ?? false)
-    }
 
     static func launchItems(_ ctx: ScanContext) async -> ScanResult {
         let id = "launchItems"
@@ -270,7 +334,8 @@ enum AppScanners {
         for place in places {
             for name in FS.list(place.dir) where FS.ext(name) == "plist" && !name.hasPrefix("com.apple.") {
                 let path = place.dir + "/" + name
-                let job = readLaunchJob(path) ?? LaunchJob(label: FS.stripExt(name), program: nil, disabled: false)
+                let job = Launchd.read(path) ?? Launchd.Job(plist: path, label: FS.stripExt(name), program: nil, disabled: false,
+                                                            isDaemon: place.scope == "daemon")
                 var badges: [String] = []
                 var risk: Risk = .review
                 var note: String
@@ -286,13 +351,7 @@ enum AppScanners {
                 }
                 if job.disabled { badges.append("Disabled") }
                 badges.append(place.scope == "user" ? "Your account" : place.scope == "agent" ? "All users" : "System daemon")
-                var steps: [RemovalStep] = []
-                if place.scope == "daemon" {
-                    steps.append(.runAsAdmin(ShellCommand("/bin/launchctl", ["bootout", "system", path], allowFailure: true)))
-                } else {
-                    steps.append(.run(ShellCommand("/bin/launchctl", ["bootout", "gui/\(uid)", path], allowFailure: true)))
-                }
-                steps.append(.files([path]))
+                let steps: [RemovalStep] = [Launchd.stop(job, uid: uid), .files([path])]
                 candidates.append(PathCandidate(path: path, title: job.label, detail: job.program.map { ctx.display($0) },
                                                 risk: risk, note: note, badges: badges, steps: steps))
             }
@@ -336,6 +395,9 @@ enum AppScanners {
             let path = "/Library/PrivilegedHelperTools/" + name
             let orphan = looksLikeBundleID(name) && !known.matches(bundleLike: name)
             let daemon = "/Library/LaunchDaemons/\(name).plist"
+            let paths = [path] + (orphan && FS.exists(daemon) ? [daemon] : [])
+            // A running helper outlives its deleted file, so its daemon is stopped first.
+            let stop = Launchd.read(daemon).map { [Launchd.stop($0, uid: ctx.uid)] } ?? []
             candidates.append(PathCandidate(
                 path: path, title: name,
                 risk: orphan ? .review : .caution,
@@ -343,7 +405,7 @@ enum AppScanners {
                     ? "A tool that runs as root on behalf of an app, and no installed app matches it. Its launch daemon (if any) is under Launch Agents & Daemons."
                     : "A tool that runs as root for an installed app. Removing it can break that app's features until it's reinstalled.",
                 badges: orphan ? ["No matching app", "Runs as root"] : ["Runs as root"],
-                extraPaths: orphan && FS.exists(daemon) ? [daemon] : []
+                steps: stop + [.files(paths)], extraPaths: Array(paths.dropFirst())
             ))
         }
         return ScanResult(await Build.items(candidates, category: id, ctx: ctx).bySize())

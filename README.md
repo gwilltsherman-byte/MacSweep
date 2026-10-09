@@ -131,6 +131,11 @@ the first time you open a downloaded copy, right-click it and choose
   tick every copy of a file some other way.
 - If an uninstall command fails (say, Homebrew refuses because something
   depends on a package), that item's files are left alone.
+- Background helpers (launch agents and daemons) belonging to an app or its
+  leftovers are stopped before their files are removed, so they can't put
+  them straight back. Anything else still running from those files, or a
+  system extension of the same software, is pointed out before you confirm,
+  and if removed files reappear anyway the results say so and why.
 - Package managers are used to remove their own packages (`brew uninstall`,
   `npm uninstall -g`, `cargo uninstall`, `pipx uninstall`, `xcrun simctl
   delete`, `docker image rm`, `ollama rm`…) so their records stay correct.
@@ -140,6 +145,8 @@ the first time you open a downloaded copy, right-click it and choose
 - Unused language files inside apps. Removing them breaks the app's code
   signature, and macOS may then refuse to open it.
 - System extensions, which only their own app (or System Settings) can remove.
+  macOS keeps them running after their app is deleted, so MacSweep warns you
+  when one is still running for an app or its leftovers.
 - macOS itself, the sealed system volume, swap and the sleep image.
 - Photos, Music and TV libraries. Edit those in their own apps.
 

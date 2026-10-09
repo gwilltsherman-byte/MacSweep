@@ -95,7 +95,7 @@ struct BadgeRow: View {
             return .green
         }
         if lower.contains("newest") || lower.contains("active") || lower.contains("default") || lower.contains("in use")
-            || lower.contains("root") {
+            || lower.contains("root") || lower.contains("running") {
             return .red
         }
         if lower.hasPrefix("not ") || lower.contains("never") || lower.contains("no record") { return .orange }

@@ -146,6 +146,32 @@ public enum RemovalStep: Hashable, Sendable {
     }
 }
 
+/// Something still running that is likely to recreate an item's files as soon as they're removed.
+public struct Recreator: Hashable, Sendable {
+    public enum Kind: Hashable, Sendable {
+        /// A program running from inside the item's files.
+        case program
+        /// A system extension. macOS keeps these running after their app is deleted, and only the
+        /// app's own uninstaller or System Settings can remove them.
+        case systemExtension
+    }
+
+    public var kind: Kind
+    /// What to call it, e.g. "Malwarebytes Protection".
+    public var name: String
+    /// The program's path, or the extension's bundle identifier.
+    public var identifier: String
+    /// macOS has already scheduled this extension to be removed at the next restart.
+    public var removedOnRestart: Bool
+
+    public init(_ kind: Kind, name: String, identifier: String, removedOnRestart: Bool = false) {
+        self.kind = kind
+        self.name = name
+        self.identifier = identifier
+        self.removedOnRestart = removedOnRestart
+    }
+}
+
 /// One thing MacSweep found that might be unnecessary.
 public struct Item: Identifiable, Hashable, Sendable {
     public var id: String
@@ -167,11 +193,13 @@ public struct Item: Identifiable, Hashable, Sendable {
     public var steps: [RemovalStep]
     /// Shown instead of a checkbox when MacSweep can't remove the item itself.
     public var manualRemoval: String?
+    /// Running software MacSweep can't stop that would put the files straight back.
+    public var recreators: [Recreator]
 
     public init(id: String? = nil, categoryID: String, title: String, detail: String = "", size: Int64? = nil,
                 risk: Risk, note: String, paths: [String] = [], date: Date? = nil, dateKind: DateKind = .modified,
                 badges: [String] = [], bundleID: String? = nil, keepPath: String? = nil,
-                steps: [RemovalStep]? = nil, manualRemoval: String? = nil) {
+                steps: [RemovalStep]? = nil, manualRemoval: String? = nil, recreators: [Recreator] = []) {
         self.id = id ?? "\(categoryID)|\(paths.first ?? title)"
         self.categoryID = categoryID
         self.title = title
@@ -187,6 +215,7 @@ public struct Item: Identifiable, Hashable, Sendable {
         self.keepPath = keepPath
         self.steps = steps ?? (paths.isEmpty ? [] : [.files(paths)])
         self.manualRemoval = manualRemoval
+        self.recreators = recreators
     }
 
     public var isRemovable: Bool { !steps.isEmpty }

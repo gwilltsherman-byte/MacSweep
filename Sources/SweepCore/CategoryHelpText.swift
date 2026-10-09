@@ -46,7 +46,7 @@ enum CategoryHelpText {
         "leftovers": CategoryHelp(
             "Settings and data folders left behind by apps you already deleted. Dragging an app to the Trash doesn't remove these.",
             ifDeleted: "Nothing you use should change. They're rated Check first because MacSweep matches them to apps by name and could be wrong.",
-            tip: "If you don't recognise the name, look it up or leave it alone."),
+            tip: "If you don't recognise the name, look it up or leave it alone. Ones marked Still running come straight back until you stop what's running; click ⓘ to see how."),
         "launchItems": CategoryHelp(
             "Small helper programs and apps set to start automatically when you log in or turn on your Mac, such as updaters and menu-bar helpers.",
             ifDeleted: "They stop starting by themselves. The app they belong to stays installed, though it may add its helper back. Ones marked Broken point to programs that no longer exist.",

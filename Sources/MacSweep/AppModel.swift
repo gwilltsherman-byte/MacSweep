@@ -32,6 +32,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var outcomeItems: [Item] = []
     @Published private(set) var lastRemovalUsedTrash = true
     @Published private(set) var runningBundleIDs: Set<String> = []
+    /// Background programs and system extensions, refreshed before and after each removal.
+    @Published private(set) var running: RunningSoftware?
     @Published private(set) var hasFullDiskAccess = true
     @Published private(set) var ignored: Set<String> = []
 
@@ -76,6 +78,11 @@ final class AppModel: ObservableObject {
     func isRunning(_ item: Item) -> Bool {
         guard let id = item.bundleID?.lowercased() else { return false }
         return runningBundleIDs.contains(id)
+    }
+
+    /// What the scan found running that would put this item's files back, if it's still running now.
+    func stillRunning(_ item: Item) -> [Recreator] {
+        item.recreators.filter { running?.isActive($0) ?? true }
     }
 
     // MARK: Scanning
@@ -218,6 +225,7 @@ final class AppModel: ObservableObject {
     func requestRemoval() {
         guard !checked.isEmpty, !isScanning else { return }
         refreshEnvironment()
+        refreshRunning()
         sheet = .confirm
     }
 
@@ -226,6 +234,14 @@ final class AppModel: ObservableObject {
         let running = items.filter(isRunning).map(\.title)
         if !running.isEmpty {
             warnings.append("Quit these apps first: \(running.prefix(6).joined(separator: ", "))\(running.count > 6 ? "…" : "").")
+        }
+        var seen = Set<String>()
+        let background = items.flatMap { stillRunning($0) }
+            .map { $0.kind == .systemExtension ? "\($0.name) (system extension)" : $0.name }
+            .filter { seen.insert($0).inserted }
+        if !background.isEmpty {
+            let one = background.count == 1
+            warnings.append("Still running: \(background.prefix(4).joined(separator: ", "))\(background.count > 4 ? "…" : ""). MacSweep can't stop \(one ? "it" : "them"), so the files \(one ? "it uses" : "they use") will come straight back. Click an item's ⓘ button to see what to do first.")
         }
         let selectedPaths = Set(items.flatMap(\.paths))
         let lastCopies = items.filter { item in
@@ -242,7 +258,8 @@ final class AppModel: ObservableObject {
         if items.contains(where: \.needsAdmin) || items.contains(where: { $0.paths.contains { $0.hasPrefix("/Library/") || $0.hasPrefix("/Applications/") || $0.hasPrefix("/usr/") || $0.hasPrefix("/private/") } }) {
             warnings.append("Some items may need your administrator password. Anything removed as administrator is deleted immediately, not moved to the Trash.")
         }
-        let commands = items.filter { $0.steps.contains { if case .run = $0 { return true } else { return false } } }.count
+        // Not counting the launchctl calls that stop background helpers; those aren't uninstalls.
+        let commands = items.filter { $0.steps.contains { if case .run(let c) = $0 { return !c.allowFailure } else { return false } } }.count
         if commands > 0 {
             warnings.append("\(commands) item\(commands == 1 ? " is" : "s are") removed by running a command (Homebrew, npm, Docker, Xcode…). These can't be restored from the Trash.")
         }
@@ -295,6 +312,7 @@ final class AppModel: ObservableObject {
         checked = checked.filter { itemIndex[$0] != nil }
         recomputeGrandTotal()
         refreshEnvironment()
+        refreshRunning()
         sheet = .results
     }
 
@@ -311,6 +329,13 @@ final class AppModel: ObservableObject {
         hasFullDiskAccess = AppModel.checkFullDiskAccess()
     }
 
+    func refreshRunning() {
+        Task {
+            let snapshot = await Background.run { RunningSoftware.snapshot() }
+            self.running = snapshot
+        }
+    }
+
     /// macOS gives no API for this, so try to read a folder that's only readable with Full Disk Access.
     static func checkFullDiskAccess() -> Bool {
         let home = NSHomeDirectory()
@@ -319,6 +344,13 @@ final class AppModel: ObservableObject {
             return (try? FileManager.default.contentsOfDirectory(atPath: probe)) != nil
         }
         return true
+    }
+
+    /// Where system extensions can be turned off (macOS 15 and later).
+    static func openLoginItemsSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     static func openFullDiskAccessSettings() {

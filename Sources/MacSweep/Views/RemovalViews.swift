@@ -17,6 +17,7 @@ struct ConfirmRemovalView: View {
         let warnings = model.warnings(for: items, useTrash: useTrash)
         let needsAcknowledgement = items.contains { $0.risk == .caution }
         let groups = Dictionary(grouping: items, by: \.categoryID)
+        let stillRunning = Set(items.filter { !model.stillRunning($0).isEmpty }.map(\.id))
         let categories = model.categories.filter { groups[$0.id] != nil }
 
         VStack(alignment: .leading, spacing: 14) {
@@ -52,6 +53,7 @@ struct ConfirmRemovalView: View {
                                 HStack {
                                     Text(item.title).lineLimit(1)
                                     if model.isRunning(item) { Chip(text: "Running", tint: .red) }
+                                    if stillRunning.contains(item.id) { Chip(text: "Still running", tint: .orange) }
                                     Spacer()
                                     RiskBadge(risk: item.risk)
                                     Text(Fmt.bytes(item.size))
@@ -159,13 +161,17 @@ struct RemovalResultsView: View {
     var body: some View {
         let outcome = model.outcome ?? RemovalOutcome()
         let failed = model.outcomeItems.filter { outcome.failures[$0.id] != nil }
+        let cameBack = model.outcomeItems.filter { outcome.cameBack[$0.id] != nil }
+        let advice = Dictionary(cameBack.map { ($0.id, RemovalPlan.comesBack(model.stillRunning($0))) }) { first, _ in first }
+        let extensionRunning = cameBack.contains { item in model.stillRunning(item).contains { $0.kind == .systemExtension } }
         let removedCount = outcome.removed.count
+        let allGood = failed.isEmpty && cameBack.isEmpty
 
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                Image(systemName: failed.isEmpty ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                Image(systemName: allGood ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                     .font(.system(size: 40))
-                    .foregroundStyle(failed.isEmpty ? Color.green : Color.orange)
+                    .foregroundStyle(allGood ? Color.green : Color.orange)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Removed \(removedCount) of \(Fmt.count(model.outcomeItems.count, "item"))").font(.title2.bold())
                     Text("About \(Fmt.bytes(outcome.freedEstimate)) \(model.lastRemovalUsedTrash ? "moved out of the way. Empty the Trash to get the space back." : "freed.")")
@@ -188,6 +194,32 @@ struct RemovalResultsView: View {
                 if !model.hasFullDiskAccess {
                     InfoBanner(text: "\"Operation not permitted\" usually means macOS is protecting the item. Full Disk Access fixes most of these.",
                                symbol: "lock", tint: .orange)
+                }
+            }
+
+            if !cameBack.isEmpty {
+                Text("These came straight back:").font(.headline)
+                Text("Their old files are gone, but something that's still running made new ones a moment later.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                List(cameBack) { item in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title).bold()
+                        Text((outcome.cameBack[item.id] ?? []).prefix(3).map(Fmt.path).joined(separator: "\n"))
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                        Text(advice[item.id] ?? "")
+                            .font(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(height: 200)
+                if extensionRunning {
+                    Button("Open Login Items & Extensions") { AppModel.openLoginItemsSettings() }
+                        .help("System extensions can be turned off in System Settings › General › Login Items & Extensions")
                 }
             }
 
