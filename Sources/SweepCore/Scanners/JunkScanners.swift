@@ -120,14 +120,20 @@ enum JunkScanners {
         return ScanResult(await Locations.scan(locs, category: "xdgCache", ctx: ctx).bySize())
     }
 
+    /// Log folders smaller than this aren't listed. Running apps and system extensions (Malwarebytes, for one)
+    /// recreate their tiny log files the moment they're deleted, so offering them only brings them straight back.
+    static let minLogFolderSize: Int64 = 256 * 1024
+
     static func logs(_ ctx: ScanContext) async -> ScanResult {
         let id = "logs"
         let names = await ctx.appNamesByID()
         var candidates: [PathCandidate] = []
         for root in [ctx.p("~/Library/Logs"), "/Library/Logs"] {
             for name in FS.list(root) where !Locations.ignorable.contains(name) {
+                let path = root + "/" + name
+                if name != "DiagnosticReports", DiskUsage.allocatedSize(path, cancel: ctx.cancel) < minLogFolderSize { continue }
                 let label = name == "DiagnosticReports" ? "Crash & diagnostic reports" : title(name, names: names)
-                candidates.append(PathCandidate(path: root + "/" + name,
+                candidates.append(PathCandidate(path: path,
                                                 title: root.hasPrefix("/Library") ? "\(label) (all users)" : label,
                                                 risk: .safe,
                                                 note: "Log files are only useful when troubleshooting. New ones are written as needed."))

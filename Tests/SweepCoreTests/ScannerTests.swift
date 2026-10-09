@@ -28,7 +28,8 @@ final class ScannerTests: XCTestCase {
                                                     withDestinationPath: box.path("home/nowhere"))
         // Library
         box.file("home/Library/Caches/com.example.app/cache.db", bytes: 10_000)
-        box.file("home/Library/Logs/ExampleApp/log.txt", bytes: 1000)
+        box.file("home/Library/Logs/ExampleApp/log.txt", bytes: 400_000, fill: 0x44)
+        box.file("home/Library/Logs/Malwarebytes/MBAM/LogsEx/com.malwarebytes.sys.ext.log", bytes: 128)
         box.file("home/Library/Saved Application State/com.example.app.savedState/data", bytes: 1000)
         box.plist("home/Library/Preferences/com.gone.app.plist", ["a": 1])
         box.file("home/Library/Containers/com.gone.app/Data/Library/Caches/x", bytes: 5000)
@@ -92,6 +93,14 @@ final class ScannerTests: XCTestCase {
             let ids = result.items.map(\.id)
             XCTAssertEqual(Set(ids).count, ids.count, "duplicate item ids in \(scanner.category.id)")
         }
+    }
+
+    func testTinyLogFoldersAreSkipped() async {
+        let box = makeHome()
+        let logs = await run("logs", context(box))
+        let paths = logs.items.flatMap(\.paths)
+        XCTAssertTrue(paths.contains { $0.hasSuffix("/Logs/ExampleApp") })
+        XCTAssertFalse(paths.contains { $0.contains("/Logs/Malwarebytes") }, "a running app would just recreate it")
     }
 
     func testHomeWalkFindings() async {
