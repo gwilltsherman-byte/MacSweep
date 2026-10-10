@@ -15,20 +15,30 @@ final class ComesBackTests: XCTestCase {
     }
 
     func testParsesSystemExtensions() {
+        // Real output from a Mac whose Malwarebytes and AVG apps had been deleted.
         let text = """
-        2 extension(s)
-        --- com.apple.system_extension.endpoint_security
+        4 extension(s)
+        --- com.apple.system_extension.network_extension (Go to 'System Settings > General > Login Items & Extensions > Network Extensions' to modify these system extension(s))
         enabled\tactive\tteamID\tbundleID (version)\tname\t[state]
-        *\t*\tGVZRY6KDKR\tcom.malwarebytes.mbam.sysext (4.18/4.18)\tMalwarebytes Protection\t[activated enabled]
-        \t\tABCDE12345\tcom.example.old.ext (1.0/1)\tOld Filter\t[terminated waiting to uninstall on reboot]
+        \t\tXSJ59WMJBM\tcom.avg.Antivirus.SystemExtension (16.2.674/16.2.674)\tAVG Antivirus\t[terminated waiting to uninstall on reboot]
+        *\t*\tJ6S6Q257EK\tch.protonvpn.mac.WireGuard-Extension (6.5.1/3106797.2605011144)\tProton VPN WireGuard\t[activated enabled]
+        *\t*\tJ6S6Q257EK\tch.protonvpn.mac.Transparent-Proxy (6.5.1/3106797.2605011144)\tProton VPN Split Tunneling (experimental)\t[activated enabled]
+        --- com.apple.system_extension.endpoint_security (Go to 'System Settings > General > Login Items & Extensions > Endpoint Security Extensions' to modify these system extension(s))
+        enabled\tactive\tteamID\tbundleID (version)\tname\t[state]
+        \t\tGVZRY6KDKR\tcom.malwarebytes.mbam.engine.sys.ext (5.27.1/5.27.1.4191)\tMalwarebytes Engine\t[terminated waiting to uninstall on reboot]
         """
         let extensions = RunningSoftware.parseSystemExtensions(text)
-        XCTAssertEqual(extensions.map(\.bundleID), ["com.malwarebytes.mbam.sysext", "com.example.old.ext"])
-        XCTAssertEqual(extensions[0].name, "Malwarebytes Protection")
-        XCTAssertTrue(extensions[0].isRunning)
-        XCTAssertFalse(extensions[0].removedOnRestart)
-        XCTAssertFalse(extensions[1].isRunning)
-        XCTAssertTrue(extensions[1].removedOnRestart)
+        XCTAssertEqual(extensions.map(\.bundleID), ["com.avg.Antivirus.SystemExtension", "ch.protonvpn.mac.WireGuard-Extension",
+                                                    "ch.protonvpn.mac.Transparent-Proxy", "com.malwarebytes.mbam.engine.sys.ext"])
+        XCTAssertEqual(extensions.map(\.isRunning), [false, true, true, false])
+        XCTAssertEqual(extensions.map(\.removedOnRestart), [true, false, false, true])
+        XCTAssertEqual(extensions[2].name, "Proton VPN Split Tunneling (experimental)")
+        XCTAssertEqual(extensions[3].teamID, "GVZRY6KDKR")
+
+        // Extensions macOS has already stopped can't put files back, so they aren't blamed for them.
+        let running = RunningSoftware(systemExtensions: extensions)
+        XCTAssertTrue(running.extensions { AppScanners.identifier($0, isNamed: "malwarebytes") }.isEmpty)
+        XCTAssertEqual(running.extensions { AppScanners.identifier($0, isNamed: "protonvpn") }.count, 2)
     }
 
     func testFindsWhatIsStillRunning() {
