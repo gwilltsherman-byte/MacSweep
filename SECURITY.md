@@ -1,15 +1,38 @@
 # Security
 
-Report vulnerabilities privately using this repository's Security tab (Report a vulnerability). Do not post secrets, personal workout backups, or private file listings in public issues.
+If you find a security problem, please report it privately. Use GitHub's private
+vulnerability reporting from the Security tab when available. If that option is
+unavailable, open an issue asking me for a private reporting channel without
+including vulnerability details.
 
-## Account and hosting controls
+Please keep file listings, credentials and personal files out of public issues.
+For ordinary bugs, describe the steps you took and the result you expected.
 
-Use passkeys or hardware security keys for GitHub and hosting accounts. Keep recovery codes offline. Review installed apps and token scopes. Protect main with pull requests, passing checks, resolved conversations and no force pushes or deletion; apply the rule to administrators too. A solo maintainer can require checks without requiring a second person's approval.
+## Using MacSweep safely
 
-Use GitHub Pages for the static Milo app and GitHub Releases for MacSweep downloads. No backend, API key or metered serverless service is required.
+Review each selected item and the confirmation sheet before removing anything.
+MacSweep normally moves files to the Trash. Some system commands, such as emptying
+the Trash or removing a Time Machine snapshot, cannot be undone. Keep a backup
+of important files.
 
-Review GitHub Budgets and alerts for Actions, storage, Codespaces and LFS; enable Stop usage when budget limit is reached where supported. GitHub notes some storage budgets may be exceeded in their first cycle. Avoid paid runners and unnecessary artifact retention.
+Grant Full Disk Access only if you want MacSweep to scan protected folders.
+File removal does not automatically escalate to administrator access. If a
+Trash move fails, MacSweep leaves the file in place. Use an app's own uninstaller
+for privileged installer files.
 
-References: https://docs.github.com/en/billing/how-tos/set-up-budgets
+Local builds use an ad hoc signature. A public release needs a Developer ID
+signature and notarization. See [README.md](README.md) for the release process.
 
-No configuration makes software invulnerable. Keep backups and update promptly.
+## Repository and fork security
+
+Every branch in this repository blocks force pushes and deletion, including for
+administrators. If you maintain a fork, apply equivalent protection and choose
+status checks that fit your contribution process.
+
+Use passkeys or hardware security keys for GitHub and hosting accounts, keep
+recovery codes offline, and review installed apps and token permissions. Check
+usage limits and billing alerts before enabling paid runners, large build
+artifacts, Codespaces, LFS or other metered services on a fork.
+
+Keep the app updated and retain backups. These safeguards reduce risk but cannot
+prevent every software defect.

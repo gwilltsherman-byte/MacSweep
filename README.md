@@ -1,9 +1,11 @@
 # MacSweep
 
-[Run on Mac and iPhone](RUNNING.md), including GitHub hosting options.
+My aim with MacSweep is to help you understand what is taking up space before
+you remove it. It is a native Mac app for reviewing caches, unused apps,
+development files and other files you may want to remove.
 
-A native macOS app for reviewing caches, unused apps, development files and
-other files you may want to remove.
+[Install and use MacSweep](RUNNING.md). MacSweep requires macOS 13 or later
+and has no iPhone version.
 
 Nothing is removed until you tick it and confirm. Files go to the Trash by
 default, so you can put them back.
@@ -101,9 +103,9 @@ cd MacSweep
 open build/MacSweep.app
 ```
 
-Pull requests and pushes to main also build the app on GitHub Actions (the **Build** workflow),
-runs the tests, and launches the app on a Mac runner to make sure it scans
-without crashing. CI artifacts are ad hoc signed development builds, not notarized public releases.
+The GitHub Actions **Build** workflow builds pull requests and pushes to main,
+runs the tests, and launches the app on a Mac runner to check that scanning
+starts without crashing. CI artifacts are ad hoc signed development builds, not notarized public releases.
 Build from source for local development. Published binaries should be made with the signed release process:
 
 ```bash
@@ -183,3 +185,4 @@ Tests/SweepCoreTests/    unit tests, including every scanner on a fake home fold
 swift test                                   # on a Mac
 docker run --rm -v "$PWD":/src -w /src swift:6.0 swift test   # anywhere else
 ```
+
