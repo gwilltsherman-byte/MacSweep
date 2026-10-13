@@ -95,8 +95,8 @@ It's written for people who aren't sure what these files are:
 You need macOS 13 or later and Xcode (or the Command Line Tools, `xcode-select --install`).
 
 ```bash
-git clone https://github.com/gwilltsherman-byte/MacSweep.git
-cd MacSweep
+git clone https://github.com/gwilltsherman-byte/MacSweep-clean.git
+cd MacSweep-clean
 ./build.sh                  # or ./build.sh --universal for Apple silicon + Intel
 open build/MacSweep.app
 ```

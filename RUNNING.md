@@ -12,8 +12,8 @@ xcode-select --install
 Clone the repository, build the app and open it:
 
 ```sh
-git clone https://github.com/gwilltsherman-byte/MacSweep.git
-cd MacSweep
+git clone https://github.com/gwilltsherman-byte/MacSweep-clean.git
+cd MacSweep-clean
 ./build.sh
 open build/MacSweep.app
 ```
