@@ -3,6 +3,18 @@
 If you have installed MacSweep, open **Applications > MacSweep** like any other
 Mac app. Future launches do not need a build command.
 
+## Download the app
+
+Download the Mac build from this repository's [Releases](https://github.com/gwilltsherman-byte/MacSweep/releases), unzip it and move MacSweep into Applications. The Apple silicon build runs on Macs with M-series chips. Locally signed builds are not notarized by Apple, so macOS may require you to approve the first launch in Privacy & Security. A notarized release requires an Apple Developer ID certificate.
+
+## Your saved settings
+
+Scanning preferences and hidden items stay on your Mac when you close the app.
+In Settings, use **Save a Backup** before changing Macs and **Restore a Backup**
+on the other Mac. Backups do not change permissions or deletion safety. Scan
+results are refreshed from the files on your Mac rather than restored as stale
+file-removal targets.
+
 ## First installation from source
 
 MacSweep requires macOS 13 or later and Xcode or Apple's Command Line Tools.
