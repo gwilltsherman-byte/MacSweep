@@ -95,8 +95,8 @@ It's written for people who aren't sure what these files are:
 You need macOS 13 or later and Xcode (or the Command Line Tools, `xcode-select --install`).
 
 ```bash
-git clone https://github.com/gwilltsherman-byte/MacSweep-clean.git
-cd MacSweep-clean
+git clone https://github.com/gwilltsherman-byte/MacSweep.git
+cd MacSweep
 ./build.sh                  # or ./build.sh --universal for Apple silicon + Intel
 open build/MacSweep.app
 ```
@@ -183,4 +183,3 @@ Tests/SweepCoreTests/    unit tests, including every scanner on a fake home fold
 swift test                                   # on a Mac
 docker run --rm -v "$PWD":/src -w /src swift:6.0 swift test   # anywhere else
 ```
-
