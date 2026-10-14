@@ -1,14 +1,14 @@
 # MacSweep
 
-My aim with MacSweep is to help you understand what is taking up space before
-you remove it. It is a native Mac app for reviewing caches, unused apps,
-development files and other files you may want to remove.
+**[Download MacSweep](https://github.com/gwilltsherman-byte/MacSweep/raw/refs/heads/main/downloads/MacSweep-AppleSilicon.zip)** · [Install and use](RUNNING.md) · [Report a problem](https://github.com/gwilltsherman-byte/MacSweep/issues/new)
 
-[Install and use MacSweep](RUNNING.md). MacSweep requires macOS 13 or later
-and has no iPhone version.
+MacSweep is my Mac app for understanding what is taking up space before removing it. Review caches, unused apps, development files and other large files, then choose what to clean up. Nothing is removed until you select it and confirm. Files go to the Trash by default, so you can put them back.
 
-Nothing is removed until you tick it and confirm. Files go to the Trash by
-default, so you can put them back.
+The downloadable build is for Apple silicon Macs running macOS 13 or later. MacSweep has no iPhone version.
+
+<img src="docs/images/overview.svg" alt="MacSweep workflow overview: review files, choose what to remove and confirm before cleanup" width="100%">
+
+## Review before you remove
 
 It's written for people who aren't sure what these files are:
 
