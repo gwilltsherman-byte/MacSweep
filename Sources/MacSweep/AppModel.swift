@@ -40,12 +40,6 @@ final class AppModel: ObservableObject {
     private var context: ScanContext?
     private var scanTask: Task<Void, Never>?
 
-    func restoredPreferences() {
-        ignored = Set(UserDefaults.standard.stringArray(forKey: "ignoredItems") ?? [])
-        checked = []
-        refreshEnvironment()
-    }
-
     init() {
         ignored = Set(UserDefaults.standard.stringArray(forKey: "ignoredItems") ?? [])
         refreshEnvironment()

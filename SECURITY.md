@@ -1,38 +1,15 @@
 # Security
 
-If you find a security problem, please report it privately. Use GitHub's private
-vulnerability reporting from the Security tab when available. If that option is
-unavailable, open an issue asking me for a private reporting channel without
-including vulnerability details.
+Report vulnerabilities privately using this repository's Security tab (Report a vulnerability). Do not post secrets, personal workout backups, or private file listings in public issues.
 
-Please keep file listings, credentials and personal files out of public issues.
-For ordinary bugs, describe the steps you took and the result you expected.
+## Account and hosting controls
 
-## Using MacSweep safely
+Use passkeys or hardware security keys for GitHub and hosting accounts. Keep recovery codes offline. Review installed apps and token scopes. Protect main with pull requests, passing checks, resolved conversations and no force pushes or deletion; apply the rule to administrators too. A solo maintainer can require checks without requiring a second person's approval.
 
-Review each selected item and the confirmation sheet before removing anything.
-MacSweep normally moves files to the Trash. Some system commands, such as emptying
-the Trash or removing a Time Machine snapshot, cannot be undone. Keep a backup
-of important files.
+Use GitHub Pages for the static Milo app and GitHub Releases for MacSweep downloads. No backend, API key or metered serverless service is required. If an additional Netlify deployment exists, verify its actual plan in Usage & billing. On credit-based Personal/Pro keep auto recharge OFF; credit-based Free has a hard limit. Legacy plans differ. A traffic attack can still exhaust limits and cause downtime. Alerts or a proxy alone are not a billing cap.
 
-Grant Full Disk Access only if you want MacSweep to scan protected folders.
-File removal does not automatically escalate to administrator access. If a
-Trash move fails, MacSweep leaves the file in place. Use an app's own uninstaller
-for privileged installer files.
+Review GitHub Budgets and alerts for Actions, storage, Codespaces and LFS; enable Stop usage when budget limit is reached where supported. GitHub notes some storage budgets may be exceeded in their first cycle. Avoid paid runners and unnecessary artifact retention.
 
-Local builds use an ad hoc signature. A public release needs a Developer ID
-signature and notarization. See [README.md](README.md) for the release process.
+References: https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/how-credits-work/ and https://docs.github.com/en/billing/how-tos/set-up-budgets
 
-## Repository and fork security
-
-Every branch in this repository blocks force pushes and deletion, including for
-administrators. If you maintain a fork, apply equivalent protection and choose
-status checks that fit your contribution process.
-
-Use passkeys or hardware security keys for GitHub and hosting accounts, keep
-recovery codes offline, and review installed apps and token permissions. Check
-usage limits and billing alerts before enabling paid runners, large build
-artifacts, Codespaces, LFS or other metered services on a fork.
-
-Keep the app updated and retain backups. These safeguards reduce risk but cannot
-prevent every software defect.
+No configuration makes software invulnerable. Keep backups and update promptly.

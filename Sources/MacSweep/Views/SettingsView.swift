@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import SweepCore
-import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
@@ -73,14 +72,6 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Backup and restore") {
-                Text("Your settings and hidden items stay saved when you close MacSweep. Save a backup before moving to another Mac.").font(.caption).foregroundStyle(.secondary)
-                HStack {
-                    Button("Save a Backup", action: saveBackup)
-                    Button("Restore a Backup", action: restoreBackup)
-                }
-            }
-
             Section("Permissions") {
                 HStack {
                     Image(systemName: model.hasFullDiskAccess ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
@@ -92,32 +83,8 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 540, height: 650)
+        .frame(width: 540, height: 560)
         .onAppear { model.refreshEnvironment() }
-    }
-
-    private func showBackupMessage(_ message: String) {
-        let alert = NSAlert(); alert.messageText = message; alert.runModal()
-    }
-    private func saveBackup() {
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "MacSweep-settings-backup.json"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do { try PreferencesBackup.export(from: .standard).write(to: url, options: .atomic) }
-        catch { showBackupMessage("Could not save the backup. Your settings are still on this Mac.") }
-    }
-    private func restoreBackup() {
-        let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let data = try Data(contentsOf: url); let values = try PreferencesBackup.validate(data)
-            let alert = NSAlert(); alert.messageText = "Restore these settings?"
-            let folders = values["extraFolders"] as? String ?? "No extra folders"
-            alert.informativeText = "This replaces scanning preferences and hidden items on this Mac. Permissions and deletion safety stay unchanged. Extra folders:\n" + folders
-            alert.addButton(withTitle: "Restore"); alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-            PreferencesBackup.restore(values, to: .standard); model.restoredPreferences()
-            showBackupMessage("Settings restored. Run a new scan to see the results.")
-        } catch { showBackupMessage("That backup could not be restored. Your previous settings were kept.") }
     }
 
     private func addFolders() {
