@@ -1,0 +1,96 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Unit tests
+        run: swift test
+
+      - name: Build the app
+        run: ./build.sh --universal
+
+      - name: Package
+        run: ditto -c -k --keepParent build/MacSweep.app build/MacSweep.zip
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: MacSweep-development
+          retention-days: 3
+          path: build/MacSweep.zip
+
+      # Launch the real app, let it scan this runner, and make sure it stays up.
+      - name: Launch smoke test
+        run: |
+          mkdir -p build/screenshots
+          for view in overview apps projects; do
+            open -n build/MacSweep.app --args -scanOnLaunch YES -openCategory "$view"
+            sleep 75
+            if ! pgrep -x MacSweep >/dev/null; then
+              echo "::error::MacSweep quit or crashed while showing $view"
+              ls -t ~/Library/Logs/DiagnosticReports 2>/dev/null | head -5
+              exit 1
+            fi
+            screencapture -x "build/screenshots/$view.png" || echo "screencapture unavailable"
+            pkill -x MacSweep || true
+            sleep 3
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: screenshots
+          retention-days: 1
+          path: build/screenshots
+          if-no-files-found: ignore
+
+  # Many people only have the Command Line Tools (no Xcode). In newer SDKs (macOS 27+) some
+  # SwiftUI attributes such as @State are macros whose plugin ships only with Xcode, so the
+  # app must not use them. The runner's SDK may be older than that, hence the explicit check.
+  command-line-tools:
+    name: Build with Command Line Tools only
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Library/Developer/CommandLineTools
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: |
+          swift --version
+          ls /Library/Developer/CommandLineTools/SDKs
+          ls -d /Applications/Xcode*.app || true
+
+      - name: No SwiftUI macros
+        run: |
+          if grep -rnE '^[[:space:]]*@(State|Entry|Previewable)([^A-Za-z]|$)' Sources; then
+            echo "::error::SwiftUI macros like @State need Xcode's macro plugin. Use @StateObject and an ObservableObject instead."
+            exit 1
+          fi
+
+      - name: Build
+        run: swift build -c release
