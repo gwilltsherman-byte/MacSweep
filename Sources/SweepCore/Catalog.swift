@@ -10,6 +10,8 @@ public enum Catalog {
             // Item ids must be unique within a category (the UI relies on it).
             var seen = Set<String>()
             result.items = result.items.filter { seen.insert($0.id).inserted }
+            // Every rating gets a second look at what is actually on disk and in use right now.
+            result.items = await Importance.assess(result.items, category: id, ctx: ctx)
             return result
         }
     }

@@ -64,7 +64,7 @@ struct ConfirmRemovalView: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(2)
                             }
-                            .help(item.note)
+                            .help(item.helpText)
                         }
                     }
                 }

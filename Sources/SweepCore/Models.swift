@@ -157,11 +157,13 @@ public struct Item: Identifiable, Hashable, Sendable {
     public var pathIdentities: [String: PathIdentity]
     /// Shown instead of a checkbox when MacSweep can't remove the item itself.
     public var manualRemoval: String?
+    /// What MacSweep found on disk that made the rating more careful than the scanner's own (plain sentences).
+    public var reasons: [String]
 
     public init(id: String? = nil, categoryID: String, title: String, detail: String = "", size: Int64? = nil,
                 risk: Risk, note: String, paths: [String] = [], date: Date? = nil, dateKind: DateKind = .modified,
                 badges: [String] = [], bundleID: String? = nil, keepPath: String? = nil,
-                steps: [RemovalStep]? = nil, manualRemoval: String? = nil) {
+                steps: [RemovalStep]? = nil, manualRemoval: String? = nil, reasons: [String] = []) {
         self.id = id ?? "\(categoryID)|\(paths.first ?? title)"
         self.categoryID = categoryID
         self.title = title
@@ -180,9 +182,20 @@ public struct Item: Identifiable, Hashable, Sendable {
             FS.info(path).map { (path, PathIdentity($0)) }
         })
         self.manualRemoval = manualRemoval
+        self.reasons = reasons
     }
 
     public var isRemovable: Bool { !steps.isEmpty }
+
+    /// A program had one of its files open when MacSweep looked.
+    public var isInUse: Bool { badges.contains(Importance.inUseBadge) }
+
+    /// Makes the rating at least `risk` and records why. Evidence never makes a rating less careful.
+    public mutating func raise(atLeast risk: Risk, because reason: String, badge: String? = nil) {
+        if risk > self.risk { self.risk = risk }
+        if !reasons.contains(reason) { reasons.append(reason) }
+        if let badge, !badges.contains(badge) { badges.append(badge) }
+    }
 
     public var needsAdmin: Bool {
         steps.contains {

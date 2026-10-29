@@ -181,22 +181,57 @@ public enum Homebrew {
 
     // MARK: Scanners
 
+    /// Language runtimes and libraries that software you build yourself links against (pyenv and rbenv
+    /// versions, virtual environments, compiled gems), which Homebrew can't see.
+    static let linkedOutsideHomebrew: Set<String> = [
+        "python", "python3", "node", "ruby", "perl", "php", "openjdk", "go", "rust", "lua", "luajit", "erlang", "elixir",
+        "julia", "r", "ghc", "dotnet", "deno", "llvm", "gcc", "openssl", "libressl", "readline", "libyaml", "gmp", "xz",
+        "zlib", "sqlite", "tcl-tk", "gdbm", "libffi", "bzip2", "ncurses", "mpdecimal", "libpq", "mysql-client",
+        "postgresql", "mysql", "mariadb", "icu4c", "libxml2", "libxslt", "imagemagick", "vips", "pkgconf", "pkg-config",
+        "autoconf", "automake", "libtool", "cmake",
+    ]
+
+    /// "python@3.12" → "python"
+    static func baseName(_ formula: String) -> String {
+        String(formula.split(separator: "@").first ?? Substring(formula))
+    }
+
+    /// Commands a formula puts on your PATH, from its folders in the Cellar.
+    static func executables(_ formula: String, cellar: String) -> [String] {
+        let root = cellar + "/" + formula
+        return FS.list(root).flatMap { version in FS.list(root + "/" + version + "/bin") }
+    }
+
     static func formulaeScan(_ ctx: ScanContext) async -> ScanResult {
         let id = "brewFormulae"
         guard let brew = await ctx.brew() else { return ScanResult(notes: ["Homebrew isn't installed."]) }
         let dependents = dependents(brew.formulae)
         let paths = brew.formulae.map { brew.cellar + "/" + $0.name }
         let sizes = await ctx.sizes(paths)
+        let typed = await ctx.typedCommands()
         var items: [Item] = []
         for (formula, size) in zip(brew.formulae, sizes) {
             let neededBy = Array(Set((dependents[formula.fullName] ?? []) + (dependents[formula.name] ?? []))).sorted()
             var badges = [formula.onRequest ? "You installed it" : "Dependency"]
             let risk: Risk
             var note: String
-            if neededBy.isEmpty && !formula.onRequest {
+            var reasons: [String] = []
+            let used = executables(formula.name, cellar: brew.cellar).filter(typed.contains).sorted()
+            if let command = used.first {
+                badges.append("Used in Terminal")
+                reasons.append("You've run \(command) in Terminal yourself, so you may rely on it directly.")
+            }
+            if neededBy.isEmpty && !formula.onRequest && used.isEmpty && !linkedOutsideHomebrew.contains(baseName(formula.name)) {
                 risk = .safe
                 badges.append("Unused dependency")
                 note = "Installed only because another package needed it, and nothing installed needs it any more."
+            } else if neededBy.isEmpty && !formula.onRequest {
+                risk = .review
+                badges.append("Unused dependency")
+                note = "Installed only because another package needed it, and no Homebrew package needs it any more."
+                if linkedOutsideHomebrew.contains(baseName(formula.name)) {
+                    reasons.append("Languages and tools you set up yourself, such as pyenv or rbenv versions, virtual environments and compiled gems, often use \(formula.name) without Homebrew knowing.")
+                }
             } else if neededBy.isEmpty {
                 risk = .review
                 note = "Nothing else depends on this. Remove it if you no longer use the \(formula.name) command."
@@ -211,7 +246,8 @@ public enum Homebrew {
                 id: "\(id)|\(formula.fullName)", categoryID: id, title: formula.name,
                 detail: [formula.version, formula.desc].filter { !$0.isEmpty }.joined(separator: " · "),
                 size: size, risk: risk, note: note, paths: [brew.cellar + "/" + formula.name],
-                date: formula.installedTime, dateKind: .installed, badges: badges, steps: [.run(command)]
+                date: formula.installedTime, dateKind: .installed, badges: badges, steps: [.run(command)],
+                reasons: reasons
             ))
         }
         return ScanResult(items.bySize(), notes: brew.problems)

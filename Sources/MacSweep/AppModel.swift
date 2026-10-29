@@ -233,13 +233,17 @@ final class AppModel: ObservableObject {
         if !running.isEmpty {
             warnings.append("Quit these apps first: \(running.prefix(6).joined(separator: ", "))\(running.count > 6 ? "…" : "").")
         }
+        let inUse = items.filter { $0.isInUse && !isRunning($0) }.map(\.title)
+        if !inUse.isEmpty {
+            warnings.append("\(inUse.count == 1 ? "This item was" : "\(inUse.count) items were") open in another program during the scan: \(inUse.prefix(4).joined(separator: ", "))\(inUse.count > 4 ? "…" : ""). Quit that program first.")
+        }
         let selectedPaths = Set(items.flatMap(\.paths))
         let lastCopies = items.filter { item in
             guard let keep = item.keepPath else { return false }
             return covered(keep, by: selectedPaths)
         }
         if !lastCopies.isEmpty {
-            warnings.append("You've also selected the copy MacSweep would keep for \(lastCopies.prefix(3).map(\.title).joined(separator: ", ")). Every copy of those files would be removed.")
+            warnings.append("You've also selected the copy MacSweep keeps for \(lastCopies.prefix(3).map(\.title).joined(separator: ", ")). One copy always stays, so those duplicates will be left in place.")
         }
         let caution = items.filter { $0.risk == .caution }.count
         if caution > 0 {

@@ -100,7 +100,7 @@ public struct HomeWalker {
             guard let info = FS.info(path) else { continue }
 
             if info.isSymlink {
-                if FS.targetInfo(path) == nil { result.brokenLinks.append(path) }
+                if FS.isDangling(path) { result.brokenLinks.append(path) }
                 continue
             }
 
@@ -175,7 +175,11 @@ public enum ArtifactRules {
             return has("Package.swift") ? build("Swift build output", "Recreated by swift build.") : nil
         case "build":
             if hasAny(gradle) { return build("Gradle build output", "Recreated by the next Gradle build.") }
-            if has("CMakeLists.txt") || has("meson.build") { return build("CMake/Meson build folder", "Recreated by the next build.") }
+            // Only a folder CMake or Meson actually configured; some projects keep build scripts in build/.
+            if (has("CMakeLists.txt") || has("meson.build"))
+                && hasAny(["build/CMakeCache.txt", "build/CMakeFiles", "build/build.ninja", "build/meson-private", "build/meson-info"]) {
+                return build("CMake/Meson build folder", "Recreated by the next build.")
+            }
             if has("pubspec.yaml") { return build("Flutter build output", "Recreated by flutter build.") }
             return nil
         case ".gradle":
@@ -185,15 +189,22 @@ public enum ArtifactRules {
         case "Pods":
             return has("Podfile") ? deps("CocoaPods packages", "Run pod install to get them back.") : nil
         case "DerivedData":
-            return build("Xcode DerivedData", "Recreated the next time you build in Xcode.")
+            // Only Xcode's: a folder of your own can have the same name.
+            let inside = FS.list(parent + "/DerivedData")
+            let xcodeMade = !Set(inside).isDisjoint(with: ["ModuleCache.noindex", "Index.noindex", "SourcePackages", "CompilationCache.noindex"])
+                || inside.contains { has("DerivedData/" + $0 + "/Build") || has("DerivedData/" + $0 + "/Index.noindex") }
+            let besideProject = has("Package.swift") || FS.list(parent).contains { ["xcodeproj", "xcworkspace"].contains(FS.ext($0)) }
+            return xcodeMade || besideProject ? build("Xcode DerivedData", "Recreated the next time you build in Xcode.") : nil
         case "__pycache__":
             return ArtifactKind(label: "Python bytecode caches", risk: .safe, note: "Python recreates these automatically.", aggregate: true)
         case ".venv", "venv", ".virtualenv", "env":
             return has(name + "/pyvenv.cfg") ? deps("Python virtual environment", "Recreate it with python -m venv and reinstall the project's packages.") : nil
         case ".tox", ".nox":
             return build("\(name) test environments", "Recreated the next time the tests run.")
-        case ".mypy_cache", ".pytest_cache", ".ruff_cache", ".hypothesis", ".ipynb_checkpoints":
+        case ".mypy_cache", ".pytest_cache", ".ruff_cache", ".hypothesis":
             return build("\(name)", "Tool cache, recreated automatically.")
+        case ".ipynb_checkpoints":
+            return deps("Jupyter checkpoints", "Jupyter's saved copies of your notebooks, used by File › Revert to Checkpoint. New ones are made when you save.")
         case ".dart_tool":
             return has("pubspec.yaml") ? build("Dart tool cache", "Recreated by dart/flutter pub get.") : nil
         case ".stack-work", "dist-newstyle":

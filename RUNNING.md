@@ -44,6 +44,18 @@ Settings, Privacy & Security, then reopen it. Rebuilding may require granting
 access again. Review selected items and the confirmation sheet before removing
 files; some system commands cannot be undone.
 
+## How items are rated
+
+Every item is rated **Safe** (rebuilt or downloaded again automatically), **Check first**
+or **Careful** (may be your own data or hard to get back). After each scanner rates
+its items, MacSweep checks what is actually there and only ever makes a rating more
+careful. It looks for files open in a running app, folders synced with iCloud Drive,
+Dropbox, Google Drive or OneDrive, files inside Git projects, Git projects that have
+no remote, unsaved documents, app databases and documents inside app folders, and
+whether a file was downloaded or made on this Mac. Click an item to see what it
+found under **What MacSweep found**. MacSweep also leaves a duplicate in place
+unless the copy it keeps is still there, unchanged and staying.
+
 ## For contributors
 
 Run `swift test` from the repository to check the scanning and removal engine.

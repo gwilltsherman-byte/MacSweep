@@ -24,8 +24,8 @@ enum CategoryHelpText {
             "Diary-like text files in which apps and macOS write down what they did, plus reports saved whenever an app crashed.",
             ifDeleted: "Nothing about how your Mac or apps work changes. You only lose old history that helps when troubleshooting a problem."),
         "temp": CategoryHelp(
-            "Scratch files that apps make while they work and are supposed to clean up afterwards, plus a few system caches such as the font cache.",
-            ifDeleted: "Usually nothing noticeable. Anything changed in the last few days is rated Check first because an open app might still be using it.",
+            "Scratch files that apps make while they work and are supposed to clean up afterwards, unfinished downloads, plus a few system caches such as the font cache.",
+            ifDeleted: "Usually nothing noticeable. Anything changed in the last few days, or open in an app right now, is rated Check first. Unsaved documents an app left behind are rated Careful.",
             tip: "Quit your apps first, and restart your Mac afterwards to be safe."),
         "savedState": CategoryHelp(
             "A note for each app of which windows it had open, so it can reopen them where you left off.",
@@ -41,12 +41,12 @@ enum CategoryHelpText {
         // MARK: Apps & add-ons
         "apps": CategoryHelp(
             "Every app in your Applications folders, with when you last opened it.",
-            ifDeleted: "The app is uninstalled along with its settings and support files. You can install it again later, but its settings will be gone.",
+            ifDeleted: "The app is uninstalled along with its settings and support files. You can install it again later, but its settings will be gone. Apps whose folders hold your own data, such as databases or documents, are rated Careful.",
             tip: "Apps you haven't opened in months are good candidates. Apps from the App Store can be downloaded again for free."),
         "leftovers": CategoryHelp(
             "Settings and data folders left behind by apps you already deleted. Dragging an app to the Trash doesn't remove these.",
-            ifDeleted: "Nothing you use should change. They're rated Check first because MacSweep matches them to apps by name and could be wrong.",
-            tip: "If you don't recognise the name, look it up or leave it alone."),
+            ifDeleted: "Nothing you use should change. They're rated Check first because MacSweep matches them to apps by name and could be wrong, and Careful when they hold databases, documents or unsaved work, or a program is using them.",
+            tip: "If you don't recognise the name, look it up or leave it alone. If you plan to reinstall the app, keep its data."),
         "launchItems": CategoryHelp(
             "Small helper programs and apps set to start automatically when you log in or turn on your Mac, such as updaters and menu-bar helpers.",
             ifDeleted: "They stop starting by themselves. The app they belong to stays installed, though it may add its helper back. Ones marked Broken point to programs that no longer exist.",
@@ -128,25 +128,25 @@ enum CategoryHelpText {
         // MARK: Your files
         "largeFiles": CategoryHelp(
             "The biggest files in your home folder: videos, disk images, archives and the like.",
-            ifDeleted: "They go to the Trash. Only you know if you still need them, so each one is rated Check first.",
+            ifDeleted: "They go to the Trash. Things you probably made yourself (videos and photos you didn't download, documents, databases, password vaults, files inside projects or synced folders) are rated Careful; the rest Check first.",
             tip: "Copy anything you want to keep to an external drive or cloud storage before deleting it."),
         "duplicates": CategoryHelp(
             "Files that are exact copies of another file, byte for byte. MacSweep always keeps one copy and never lists it.",
-            ifDeleted: "The extra copy goes to the Trash. The copy MacSweep keeps stays where it is.",
+            ifDeleted: "The extra copy goes to the Trash. The copy MacSweep keeps stays where it is, and a duplicate is left alone if its kept copy is gone, changed or also selected.",
             tip: "Click an item to see which copy is kept. If you'd rather keep the other one, untick this item."),
         "oldDownloads": CategoryHelp(
             "Things in your Downloads folder that you haven't opened or changed in a long time.",
-            ifDeleted: "They go to the Trash. Most downloads can be downloaded again if you need them."),
+            ifDeleted: "They go to the Trash. Most downloads can be downloaded again; files that were saved here rather than downloaded, and folders holding Git projects, are rated Careful."),
         "installers": CategoryHelp(
             "Installer files (.dmg and .pkg) and disk images you downloaded to install apps, plus big macOS installers and iPhone updates.",
-            ifDeleted: "Apps you already installed keep working. You'd need to download the installer again to reinstall."),
+            ifDeleted: "Apps you already installed keep working. You'd need to download the installer again to reinstall. Encrypted disk images are rated Careful because they usually hold private files."),
         "backups": CategoryHelp(
             "Backups of iPhones and iPads that Finder (or iTunes) saved on this Mac.",
             ifDeleted: "The backup is gone for good. If the device also backs up to iCloud, or you no longer have it, you may not need it.",
             tip: "This may be the only copy of photos and messages from an old phone. Keep it if you're not sure."),
         "attachments": CategoryHelp(
             "Copies of files you received in Mail, Messages and chat apps such as WhatsApp, Slack, Teams and Zoom.",
-            ifDeleted: "Mail's copies are safe to remove because the originals stay in your email. Messages and WhatsApp media may be the only copy."),
+            ifDeleted: "Mail's copies are safe to remove because the originals stay in your email, unless you edited one after opening it (MacSweep checks). Messages and WhatsApp media may be the only copy."),
         "clutter": CategoryHelp(
             "Tiny invisible files that Finder and Windows create (like .DS_Store), and shortcuts that point to things that no longer exist.",
             ifDeleted: "Nothing important happens. Finder recreates its files, though folders may forget custom icon positions."),

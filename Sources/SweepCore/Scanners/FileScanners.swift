@@ -24,17 +24,17 @@ enum FileScanners {
         let token = ctx.cancel
         let buckets = walk.sizeBuckets
         let groups = await Background.run { DuplicateFinder.find(buckets: buckets, cancel: token) }
-        let downloads = ctx.p("~/Downloads/")
+        let clouds = await ctx.cloudFolders()
         var items: [Item] = []
         for group in groups {
-            // Keep the copy that looks most "original": not in Downloads, oldest, shortest path.
-            let ordered = group.paths.sorted { a, b in
-                let aDownload = a.hasPrefix(downloads), bDownload = b.hasPrefix(downloads)
-                if aDownload != bDownload { return !aDownload }
-                let aDate = FS.modified(a) ?? .distantFuture, bDate = FS.modified(b) ?? .distantFuture
-                if aDate != bDate { return aDate < bDate }
-                return a.count < b.count
+            // Keep the copy that matters most, so the one offered for removal is the least important:
+            // copies a project uses or a cloud service syncs first, then your library folders, then the
+            // one that isn't named like a copy, the oldest, and the shortest path.
+            let ranked = group.paths.map { path in
+                (path: path, key: (keepRank(path, ctx: ctx, clouds: clouds), looksLikeCopy(path, among: group.paths) ? 1 : 0,
+                                   FS.modified(path) ?? .distantFuture, path.count))
             }
+            let ordered = ranked.sorted { $0.key < $1.key }.map { $0.path }
             let keep = ordered[0]
             let keepClone = contentIdentifier(keep)
             for (index, path) in ordered.dropFirst().enumerated() {
@@ -54,6 +54,28 @@ enum FileScanners {
         return ScanResult(items.bySize(), notes: ["Compares files of \(minimum) or more outside ~/Library by their full contents. One copy of each is always kept off the list."])
     }
 
+    /// Lower is more worth keeping.
+    static func keepRank(_ path: String, ctx: ScanContext, clouds: CloudFolders) -> Int {
+        if ctx.projects.root(containing: path) != nil { return 0 }
+        if clouds.service(for: path) != nil { return 1 }
+        if ["~/Pictures/", "~/Movies/", "~/Music/", "~/Documents/", "~/Desktop/"].contains(where: { path.hasPrefix(ctx.p($0)) }) {
+            return 2
+        }
+        if path.hasPrefix(ctx.p("~/Downloads/")) { return 4 }
+        return 3
+    }
+
+    /// "report copy.pdf", "report copy 2.pdf", "report (1).pdf" and "report 2.pdf" next to "report.pdf".
+    static func looksLikeCopy(_ path: String, among paths: [String]) -> Bool {
+        let stem = FS.stripExt(FS.name(path))
+        return paths.contains { other in
+            let otherStem = FS.stripExt(FS.name(other))
+            guard otherStem.count < stem.count, stem.hasPrefix(otherStem) else { return false }
+            let rest = String(stem.dropFirst(otherStem.count))
+            return rest.range(of: "^( copy( [0-9]+)?| ?\\([0-9]+\\)|[ _-][0-9]{1,2})$", options: .regularExpression) != nil
+        }
+    }
+
     static func contentIdentifier(_ path: String) -> Int64? {
         #if os(macOS)
         let values = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.fileContentIdentifierKey])
@@ -71,6 +93,7 @@ enum FileScanners {
         var candidates: [PathCandidate] = []
         for name in FS.list(root) where !Locations.ignorable.contains(name) {
             if HomeWalker.installerExtensions.contains(FS.ext(name)) { continue } // shown under Installers
+            if JunkScanners.unfinishedDownloadExtensions.contains(FS.ext(name)) { continue } // shown under Temporary Files
             let path = root + "/" + name
             let dates = [FS.modified(path), AppCatalog.dateAdded(path), AppCatalog.lastUsed(path)].compactMap { $0 }
             guard let latest = dates.max(), latest < cutoff else { continue }
@@ -152,7 +175,30 @@ enum FileScanners {
         if FS.isBlocked(ctx.p("~/Library/Messages")) || FS.isBlocked(ctx.p("~/Library/Mail")) {
             notes.append("Give MacSweep Full Disk Access to see Mail and Messages attachments.")
         }
-        return ScanResult(await Locations.scan(locs, category: "attachments", ctx: ctx).bySize(), notes: notes)
+        var items = await Locations.scan(locs, category: "attachments", ctx: ctx)
+        for index in items.indices where FS.name(items[index].paths[0]) == "Mail Downloads" {
+            let edited = editedAttachments(items[index].paths[0])
+            guard let first = edited.first else { continue }
+            let several = edited.count > 1
+            items[index].raise(atLeast: .review,
+                               because: "\(edited.count) attachment\(several ? "s were" : " was") changed after Mail saved \(several ? "them" : "it"), such as “\(first)”. If you edited an attachment you opened from Mail, your changes exist only here.",
+                               badge: "Edited")
+        }
+        return ScanResult(items.bySize(), notes: notes)
+    }
+
+    /// Mail saves each opened attachment in a folder of its own. A file changed well after that folder was
+    /// made has been edited since, and the edit lives nowhere else.
+    static func editedAttachments(_ root: String) -> [String] {
+        var edited: [String] = []
+        for folder in FS.list(root) {
+            let dir = root + "/" + folder
+            guard let info = FS.info(dir), info.isDirectory, let created = info.created else { continue }
+            for name in FS.list(dir) where !Locations.ignorable.contains(name) {
+                if let file = FS.info(dir + "/" + name), file.modified.timeIntervalSince(created) > 600 { edited.append(name) }
+            }
+        }
+        return edited
     }
 
     static func clutter(_ ctx: ScanContext) async -> ScanResult {
@@ -174,10 +220,20 @@ enum FileScanners {
                   note: "Thumbs.db and desktop.ini files that Windows leaves on shared drives.")
         for link in walk.brokenLinks {
             let target = (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) ?? "?"
-            let offline = target.hasPrefix("/Volumes/")
+            let offline = target.hasPrefix("/Volumes/") || target.hasPrefix("/Network/") || target.hasPrefix("/net/")
+            // A link is deleted for good (it can't go to the Trash), and where it pointed is lost with it.
+            let project = ctx.projects.root(containing: link)
+            let setting = FS.name(link).hasPrefix(".")
+            var note = "A shortcut (symlink) whose target no longer exists."
+            if offline {
+                note = "Points to a drive that isn't connected right now."
+            } else if let project {
+                note = "A shortcut whose target doesn't exist right now, inside the Git project “\(FS.name(project))”. Projects often link to files a build creates, so it may work again after the next build."
+            } else if setting {
+                note = "A settings shortcut whose target is missing, often a dotfile linked from a folder that moved. Deleting it also forgets where it pointed."
+            }
             items.append(Item(categoryID: id, title: FS.name(link), detail: "\(ctx.display(link)) → \(target)", size: nil,
-                              risk: offline ? .review : .safe,
-                              note: offline ? "Points to a drive that isn't connected right now." : "A shortcut (symlink) whose target no longer exists.",
+                              risk: offline || project != nil || setting ? .review : .safe, note: note,
                               paths: [link], badges: ["Broken link"], steps: [.deleteForever([link])]))
         }
         return ScanResult(items.sorted { ($0.size ?? 0) > ($1.size ?? 0) },

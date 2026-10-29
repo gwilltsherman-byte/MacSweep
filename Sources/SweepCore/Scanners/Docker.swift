@@ -6,7 +6,10 @@ public struct DockerImage: Sendable, Hashable {
     public var tag: String
     public var size: Int64?
     public var created: String
+    /// The registry digest, "<none>" for images built on this Mac and never pushed or pulled.
+    public var digest: String? = nil
     public var dangling: Bool { repository == "<none>" }
+    public var builtLocally: Bool { !dangling && digest == "<none>" }
 }
 
 public struct DockerContainer: Sendable, Hashable {
@@ -31,7 +34,7 @@ public enum Docker {
         guard let docker = shell.which("docker") else { return nil }
         let info = await shell.run(docker, ["info", "--format", "{{.ServerVersion}}"], timeout: 15)
         guard info.ok else { return DockerSnapshot(docker: docker, running: false) }
-        async let images = shell.run(docker, ["image", "ls", "--format", "{{json .}}"], timeout: 60)
+        async let images = shell.run(docker, ["image", "ls", "--digests", "--format", "{{json .}}"], timeout: 60)
         async let containers = shell.run(docker, ["ps", "-a", "-s", "--filter", "status=exited", "--filter", "status=created",
                                                   "--filter", "status=dead", "--format", "{{json .}}"], timeout: 120)
         async let volumes = shell.run(docker, ["volume", "ls", "--filter", "dangling=true", "--format", "{{json .}}"], timeout: 60)
@@ -55,7 +58,7 @@ public enum Docker {
             guard let id = row["ID"] as? String else { return nil }
             return DockerImage(id: id, repository: row["Repository"] as? String ?? "<none>", tag: row["Tag"] as? String ?? "",
                                size: (row["Size"] as? String).flatMap(SizeParser.parse),
-                               created: row["CreatedSince"] as? String ?? "")
+                               created: row["CreatedSince"] as? String ?? "", digest: row["Digest"] as? String)
         }
     }
 
@@ -94,8 +97,10 @@ public enum Docker {
                     risk: image.dangling ? .safe : .review,
                     note: image.dangling
                         ? "A leftover layer from an old build that no tag points to."
+                        : image.builtLocally
+                        ? "Built on this Mac rather than downloaded, so it can't be pulled again. Getting it back means rebuilding it from its Dockerfile. Sizes overlap when images share layers."
                         : "Pulled again automatically the next time something needs it. Sizes overlap when images share layers.",
-                    badges: image.dangling ? ["Dangling"] : [],
+                    badges: image.dangling ? ["Dangling"] : image.builtLocally ? ["Built here"] : [],
                     steps: [.run(ShellCommand(snap.docker, ["image", "rm"],
                                               targets: [image.dangling ? image.id : "\(image.repository):\(image.tag)"],
                                               batchable: true))]

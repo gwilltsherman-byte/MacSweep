@@ -24,11 +24,14 @@ public final class ScanContext: @unchecked Sendable {
     public let settings: ScanSettings
     public let cancel = CancelToken()
     public let shell: Shell
+    /// Which Git working copy a path is in, shared by every category in this scan.
+    public let projects: GitProjects
     private let memo = Memo()
 
     public init(settings: ScanSettings, shell: Shell = .shared) {
         self.settings = settings
         self.shell = shell
+        self.projects = GitProjects(home: settings.home)
     }
 
     public var home: String { settings.home }
@@ -113,6 +116,23 @@ public final class ScanContext: @unchecked Sendable {
     public func docker() async -> DockerSnapshot? {
         let shell = self.shell
         return await memo.value("docker") { await Docker.snapshot(shell: shell) }
+    }
+
+    /// What running programs have open, listed once per scan.
+    public func openFiles() async -> OpenFiles {
+        let shell = self.shell
+        return await memo.value("openFiles") { await OpenFiles.snapshot(shell: shell) }
+    }
+
+    public func cloudFolders() async -> CloudFolders {
+        let home = self.home
+        return await memo.value("cloudFolders") { await Background.run { CloudFolders.find(home: home) } }
+    }
+
+    /// Names of programs you've run in Terminal, from your shell history.
+    public func typedCommands() async -> Set<String> {
+        let home = self.home
+        return await memo.value("typedCommands") { await Background.run { ShellHistory.commands(home: home) } }
     }
 
     /// Friendly title for a folder named after a bundle id, e.g. "Spotify (com.spotify.client)".

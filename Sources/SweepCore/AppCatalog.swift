@@ -81,7 +81,8 @@ public enum AppCatalog {
             name: FS.stripExt(FS.name(path)),
             bundleID: info?["CFBundleIdentifier"] as? String,
             version: (info?["CFBundleShortVersionString"] as? String) ?? (info?["CFBundleVersion"] as? String),
-            isAppStore: FS.exists(path + "/Contents/_MASReceipt/receipt")
+            // iPhone and iPad apps on a Mac (inside Wrapper/) only come from the App Store.
+            isAppStore: FS.exists(path + "/Contents/_MASReceipt/receipt") || FS.isDir(path + "/Wrapper")
         )
     }
 
