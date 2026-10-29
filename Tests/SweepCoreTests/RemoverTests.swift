@@ -126,7 +126,8 @@ final class RemoverTests: XCTestCase {
         XCTAssertTrue(fake.finderRequests.isEmpty)
         let script = try XCTUnwrap(fake.scripts.first)
         XCTAssertTrue(script.contains("gone ./guarded.bin \(inode) || failed=1"), script)
-        XCTAssertTrue(script.contains("cd -P -- \(Shell.quote(try XCTUnwrap(FS.realPath(FS.parent(guarded)))))"), script)
+        let folder = try XCTUnwrap(FS.realPath(FS.parent(guarded)))
+        XCTAssertTrue(script.contains("cd -P -- \(Shell.quote(folder))"), script)
     }
 
     func testMovingWhatMacOSWontLetMacSweepMoveIsFindersJob() async throws {
@@ -215,6 +216,16 @@ final class RemoverTests: XCTestCase {
         XCTAssertTrue(FS.exists(swapped))
         let failure = try XCTUnwrap(Remover.parseAdminOutput(result.stdout)[0] ?? nil, result.stdout)
         XCTAssertTrue(failure.contains("swapped.bin changed"), failure)
+    }
+
+    /// Both AppleScripts must at least compile, or Finder and the password prompt could never help.
+    func testAppleScriptsCompile() throws {
+        let box = Sandbox()
+        let script = Remover.adminScript(for: [Remover.adminDeletion(in: "/Library/Caches", [("it's \"odd\"", 1)])])
+        for source in [Remover.finderScript, Remover.administratorAppleScript(script)] {
+            let result = Shell.execute("/usr/bin/osacompile", ["-o", box.path("check.scpt"), "-e", source], environment: nil, timeout: 60)
+            XCTAssertTrue(result.ok, result.errorSummary)
+        }
     }
 
     func testAdministratorDeletionStaysInItsFolder() throws {

@@ -578,16 +578,19 @@ public final class Remover: @unchecked Sendable {
         return failures
     }
 
-    /// Runs a script as root after one administrator password prompt. The script travels inside the command
-    /// itself: a temporary file someone could change in the meantime is never elevated.
-    public static func runAsAdministrator(_ script: String) -> ShellResult {
-        #if os(macOS)
+    static func administratorAppleScript(_ script: String) -> String {
         let literal = script.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
-        let appleScript = "do shell script \"\(literal)\" with administrator privileges without altering line endings"
-        return Shell.execute("/usr/bin/osascript", ["-e", appleScript],
+        return "do shell script \"\(literal)\" with administrator privileges without altering line endings"
+    }
+
+    /// Runs a script as root after one administrator password prompt. The script travels inside the command
+    /// itself: a temporary file someone could change in the meantime is never elevated.
+    public static func runAsAdministrator(_ script: String) -> ShellResult {
+        #if os(macOS)
+        return Shell.execute("/usr/bin/osascript", ["-e", administratorAppleScript(script)],
                              environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"], timeout: 3600)
         #else
         return ShellResult(status: 1, stdout: "", stderr: "Administrator actions are only available on macOS")
