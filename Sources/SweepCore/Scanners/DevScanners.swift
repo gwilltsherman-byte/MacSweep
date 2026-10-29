@@ -86,7 +86,7 @@ enum DevScanners {
             if let dash = name.lastIndex(of: "-"), name.distance(from: dash, to: name.endIndex) > 20 {
                 title = String(name[..<dash])
             }
-            if let workspace = FS.readPlist(path + "/info.plist")?["WorkspacePath"] as? String, !FS.exists(workspace) {
+            if let workspace = FS.readPlist(path + "/info.plist")?["WorkspacePath"] as? String, FS.isMissing(workspace) {
                 badges.append("Project no longer exists")
             }
             candidates.append(PathCandidate(path: path, title: "\(title) build data", risk: .safe,
@@ -438,7 +438,8 @@ enum DevScanners {
             .whole("~/.gradle/daemon", "Gradle daemon logs", .safe, "Logs and state of old Gradle daemons."),
             .whole("~/.gradle/native", "Gradle native libraries", .safe, redownload),
             .children("~/.gradle/jdks", "Gradle-provisioned JDK", .review, toolchain, dirsOnly: true),
-            .whole("~/.m2/repository", "Maven repository", .safe, redownload),
+            .whole("~/.m2/repository", "Maven repository", .review,
+                   "Maven downloads what your builds need again, except libraries you built yourself with mvn install; those have to be built again."),
             .whole("~/.ivy2/cache", "Ivy cache", .safe, redownload),
             .whole("~/.sbt/boot", "sbt boot files", .safe, redownload),
             .whole("~/.konan/dependencies", "Kotlin/Native dependencies", .safe, redownload),
@@ -518,8 +519,8 @@ enum DevScanners {
             .whole("~/.julia/packages", "Julia packages", .review, redownload),
             .children("~/.julia/juliaup", "Julia", .review, toolchain, dirsOnly: true),
             .whole("~/.terraform.d/plugin-cache", "Terraform provider cache", .safe, redownload),
-            .whole("~/.conan/data", "Conan packages", .safe, redownload),
-            .whole("~/.conan2/p", "Conan 2 packages", .safe, redownload),
+            .whole("~/.conan/data", "Conan packages", .review, redownload + " Packages you made yourself with conan create have to be made again."),
+            .whole("~/.conan2/p", "Conan 2 packages", .review, redownload + " Packages you made yourself with conan create have to be made again."),
             .children("~/.swiftly/toolchains", "Swift", .review, toolchain, dirsOnly: true),
             .children("~/.local/share/swiftly/toolchains", "Swift", .review, toolchain, dirsOnly: true),
             .whole("~/.swiftpm/cache", "Swift Package Manager cache", .safe, redownload),
@@ -602,7 +603,7 @@ enum DevScanners {
                     guard let json = FS.readJSON(dir + "/workspace.json") as? [String: Any],
                           let uri = (json["folder"] as? String) ?? (json["workspace"] as? String),
                           uri.hasPrefix("file://"), let url = URL(string: uri) else { continue }
-                    if !FS.exists(url.path) {
+                    if FS.isMissing(url.path) {
                         candidates.append(PathCandidate(path: dir, title: "\(editor.label) state for \(FS.name(url.path))",
                                                         detail: "\(ctx.display(url.path)) no longer exists", risk: .safe,
                                                         note: "Editor state (open tabs, extension data) for a folder that's been deleted or moved.",
@@ -654,9 +655,18 @@ enum DevScanners {
             for (product, versions) in products where versions.count > 1 {
                 let newest = versions.max { FS.versionLess($0.version, $1.version) }!
                 for entry in versions where entry.name != newest.name {
-                    candidates.append(PathCandidate(path: root + "/" + entry.name, title: "\(product) \(entry.version) settings",
-                                                    risk: .safe, note: "Settings and plug-ins for an older version. \(product) \(newest.version) already copied what it needed.",
-                                                    badges: ["Older version"]))
+                    // Scratch files and saved database consoles are your own writing, and an upgrade
+                    // only copies them when you choose to import the old settings.
+                    let folder = root + "/" + entry.name
+                    let written = ["scratches", "consoles"].flatMap { sub in
+                        FS.list(folder + "/" + sub).filter { !$0.hasPrefix(".") }.map { "\(sub)/\($0)" }
+                    }
+                    candidates.append(PathCandidate(path: folder, title: "\(product) \(entry.version) settings",
+                                                    risk: written.isEmpty ? .safe : .review,
+                                                    note: written.isEmpty
+                                                        ? "Settings and plug-ins for an older version. \(product) \(newest.version) already copied what it needed."
+                                                        : "Settings and plug-ins for an older version, plus scratch files or database consoles you wrote (\(written.count) in \(written.prefix(2).joined(separator: ", "))). Check that \(product) \(newest.version) has them before deleting.",
+                                                    badges: written.isEmpty ? ["Older version"] : ["Older version", "Your scratch files"]))
                     for extra in [ctx.p("~/Library/Caches/\(vendor)/\(entry.name)"), ctx.p("~/Library/Logs/\(vendor)/\(entry.name)")] where FS.exists(extra) {
                         candidates[candidates.count - 1].extraPaths.append(extra)
                     }

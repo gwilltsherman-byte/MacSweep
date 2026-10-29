@@ -215,7 +215,7 @@ struct NameCell: View {
             .buttonStyle(.borderless)
             .help("What is this, and what happens if I delete it?")
         }
-        .help(item.note)
+        .help(item.helpText)
     }
 }
 
@@ -235,6 +235,9 @@ struct ItemDetailView: View {
                     Text(Fmt.bytes(item.size)).font(.headline.monospacedDigit())
                 }
                 section("What is it?", item.note.isEmpty ? (category?.help.whatItIs ?? "") : item.note)
+                if !item.reasons.isEmpty {
+                    section("What MacSweep found", item.reasons.map { "• " + $0 }.joined(separator: "\n"))
+                }
                 section("What happens if you delete it?", item.risk.explanation)
                 section("Can you undo it?", RemovalPlan.recovery(for: item, useTrash: useTrash, home: NSHomeDirectory()))
                 if !item.paths.isEmpty {

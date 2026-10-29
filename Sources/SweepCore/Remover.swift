@@ -65,6 +65,22 @@ public final class Remover: @unchecked Sendable {
             if refused.isEmpty { runnable.append(item) } else { ledger.fail([item.id], "Refused for safety. " + refused.joined(separator: "; ")) }
         }
 
+        // A duplicate goes only while the copy MacSweep keeps is still there, the same size, and staying.
+        let leaving = Set(runnable.flatMap { $0.steps.flatMap(\.paths) })
+        runnable = runnable.filter { item in
+            guard let keep = item.keepPath else { return true }
+            if SizeMath.isCovered(keep, by: leaving) {
+                ledger.fail([item.id], "Left in place: the copy MacSweep keeps (\(display(keep))) is being removed too, and one copy always stays.")
+                return false
+            }
+            guard let kept = FS.info(keep), let own = item.paths.first.flatMap({ FS.info($0) }),
+                  kept.isRegular, kept.size == own.size else {
+                ledger.fail([item.id], "Left in place: the copy MacSweep keeps (\(display(keep))) is gone or has changed. Scan again.")
+                return false
+            }
+            return true
+        }
+
         // 1. Commands that run as the user, merged where possible.
         var groups: [(command: ShellCommand, owners: [String: [String]])] = []
         var groupIndex: [String: Int] = [:]

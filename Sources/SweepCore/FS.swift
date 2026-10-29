@@ -14,6 +14,8 @@ public struct FileInfo: Sendable {
     public let allocated: Int64
     public let modified: Date
     public let accessed: Date
+    /// When the file was created (macOS only).
+    public let created: Date?
     public let uid: UInt32
     public let device: UInt64
     public let inode: UInt64
@@ -42,10 +44,12 @@ extension FileInfo {
         #if os(Linux)
         modified = Date(timeIntervalSince1970: TimeInterval(st.st_mtim.tv_sec))
         accessed = Date(timeIntervalSince1970: TimeInterval(st.st_atim.tv_sec))
+        created = nil
         isDataless = false
         #else
         modified = Date(timeIntervalSince1970: TimeInterval(st.st_mtimespec.tv_sec))
         accessed = Date(timeIntervalSince1970: TimeInterval(st.st_atimespec.tv_sec))
+        created = Date(timeIntervalSince1970: TimeInterval(st.st_birthtimespec.tv_sec))
         isDataless = (UInt32(st.st_flags) & 0x40000000) != 0 // SF_DATALESS
         #endif
         uid = UInt32(st.st_uid)
@@ -76,6 +80,32 @@ public enum FS {
     }
 
     public static func isDir(_ path: String) -> Bool { info(path)?.isDirectory == true }
+
+    /// True only when the path is certainly gone. A folder MacSweep may not read, or a drive or
+    /// network share that isn't connected right now, makes a path look missing when it isn't.
+    public static func isMissing(_ path: String) -> Bool {
+        var st = stat()
+        if lstat(path, &st) == 0 { return false }
+        guard errno == ENOENT || errno == ENOTDIR else { return false }
+        return !isOnDisconnectedVolume(path)
+    }
+
+    /// True for a symlink whose target can't exist: it's missing or the link loops. Targets in folders
+    /// MacSweep can't read are not dangling, only unknown.
+    public static func isDangling(_ link: String) -> Bool {
+        var st = stat()
+        if stat(link, &st) == 0 { return false }
+        return errno == ENOENT || errno == ENOTDIR || errno == ELOOP
+    }
+
+    /// Paths on /Volumes/<drive> or a network mount whose drive isn't mounted.
+    public static func isOnDisconnectedVolume(_ path: String) -> Bool {
+        let parts = Safety.canonical(path).split(separator: "/").map(String.init)
+        guard parts.count >= 2 else { return false }
+        if parts[0] == "Volumes" { return !exists("/Volumes/" + parts[1]) }
+        if parts[0] == "Network" || parts[0] == "net" { return true }
+        return false
+    }
 
     public static func isWritable(_ path: String) -> Bool { access(path, W_OK) == 0 }
 
@@ -167,10 +197,28 @@ public enum FS {
 
     /// Info.plist of an app, plug-in, framework or other bundle.
     public static func bundleInfo(_ bundlePath: String) -> [String: Any]? {
-        for candidate in ["Contents/Info.plist", "Resources/Info.plist", "Info.plist"] {
+        for candidate in ["Contents/Info.plist", "Resources/Info.plist", "Info.plist", "WrappedBundle/Info.plist"] {
             if let plist = readPlist(bundlePath + "/" + candidate) { return plist }
         }
+        // iPhone and iPad apps installed on Apple silicon keep their real bundle inside Wrapper/.
+        for name in list(bundlePath + "/Wrapper") where ext(name) == "app" {
+            if let plist = readPlist(bundlePath + "/Wrapper/" + name + "/Info.plist") { return plist }
+        }
         return nil
+    }
+
+    /// An extended attribute's raw value (macOS only; nil elsewhere or when it isn't set).
+    public static func extendedAttribute(_ path: String, _ name: String) -> Data? {
+        #if os(macOS)
+        let size = getxattr(path, name, nil, 0, 0, XATTR_NOFOLLOW)
+        guard size > 0, size <= 1 << 20 else { return nil }
+        var data = Data(count: size)
+        let read = data.withUnsafeMutableBytes { getxattr(path, name, $0.baseAddress, size, 0, XATTR_NOFOLLOW) }
+        guard read > 0 else { return nil }
+        return data.prefix(read)
+        #else
+        return nil
+        #endif
     }
 
     public static func bundleID(_ bundlePath: String) -> String? {

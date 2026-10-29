@@ -43,6 +43,8 @@ extension Item {
     var sortSize: Int64 { size ?? -1 }
     var sortDate: Date { date ?? .distantPast }
     var badgeText: String { badges.joined(separator: ", ") }
+    /// The note plus whatever MacSweep found that made the rating more careful.
+    var helpText: String { ([note] + reasons).filter { !$0.isEmpty }.joined(separator: "\n") }
 }
 
 struct RiskBadge: View {

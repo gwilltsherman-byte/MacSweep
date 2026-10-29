@@ -274,10 +274,13 @@ enum AppScanners {
                 var badges: [String] = []
                 var risk: Risk = .review
                 var note: String
-                if let program = job.program, program.hasPrefix("/"), !FS.exists(program) {
+                if let program = job.program, program.hasPrefix("/"), FS.isMissing(program) {
                     badges.append("Broken")
                     risk = .safe
                     note = "Starts \(program), which no longer exists, so it does nothing except log errors."
+                } else if let program = job.program, program.hasPrefix("/"), FS.isOnDisconnectedVolume(program) {
+                    badges.append("Drive not connected")
+                    note = "Starts \(program), on a drive that isn't connected right now. It works again once the drive is back."
                 } else if !known.matches(bundleLike: job.label) && looksLikeBundleID(job.label) {
                     badges.append("No matching app")
                     note = "Runs \(job.program.map { ctx.display($0) } ?? "a background task") automatically. No installed app matches it."
@@ -311,7 +314,7 @@ enum AppScanners {
             for entry in list {
                 guard let name = entry["name"] as? String else { continue }
                 let path = entry["path"] as? String ?? ""
-                let missing = !path.isEmpty && !FS.exists(path)
+                let missing = !path.isEmpty && FS.isMissing(path)
                 let escaped = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
                 let delete = "Application(\"System Events\").loginItems.byName(\"\(escaped)\").delete()"
                 items.append(Item(

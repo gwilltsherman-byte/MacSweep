@@ -37,16 +37,40 @@ enum JunkScanners {
         await cacheFolder("/Library/Caches", category: "systemCaches", ctx: ctx)
     }
 
+    /// macOS's own caches that aren't named com.apple.*.
+    static let appleCacheNames: Set<String> = [
+        "CloudKit", "FamilyCircle", "familycircled", "GeoServices", "PassKit", "SiriTTS", "Metadata", "TemporaryItems",
+        "storeassetd", "AMSDataMigratorTool", "SharedImageCache", "Safari", "Maps", "Weather",
+    ]
+
+    /// Browsers that test tools download, which only come back when you run the tool's install command.
+    static let manualDownloads: [String: String] = [
+        "ms-playwright": "npx playwright install", "Cypress": "npx cypress install",
+        "puppeteer": "npx puppeteer browsers install chrome",
+    ]
+
+    static func manualDownloadNote(_ command: String) -> String {
+        "Browsers downloaded for automated testing. They don't come back by themselves: run \(command) when you need them again."
+    }
+
     static func cacheFolder(_ root: String, category: String, ctx: ScanContext) async -> ScanResult {
         let names = await ctx.appNamesByID()
         var candidates: [PathCandidate] = []
         for name in FS.list(root) where !Locations.ignorable.contains(name) {
-            let apple = name.hasPrefix("com.apple.")
-            candidates.append(PathCandidate(
-                path: root + "/" + name, title: title(name, names: names), risk: apple ? .review : .safe,
-                note: apple ? "A macOS cache. It's rebuilt automatically, though some system features may need a moment (or a restart) to recover." : cacheNote,
-                bundleID: name.contains(".") ? name : nil
-            ))
+            let path = root + "/" + name
+            let apple = name.hasPrefix("com.apple.") || appleCacheNames.contains(name)
+            var risk: Risk = apple ? .review : .safe
+            var note = apple ? "A macOS cache. It's rebuilt automatically, though some system features may need a moment (or a restart) to recover." : cacheNote
+            if let command = manualDownloads[name] {
+                risk = .review
+                note = manualDownloadNote(command)
+            } else if name == "JetBrains", FS.list(path).contains(where: { FS.isDir(path + "/" + $0 + "/LocalHistory") }) {
+                // Unlike the indexes, Local History can't be rebuilt.
+                risk = .review
+                note = "Indexes and caches of JetBrains IDEs, plus Local History: earlier versions of files you edited, kept nowhere else. Indexes are rebuilt; the history isn't."
+            }
+            candidates.append(PathCandidate(path: path, title: title(name, names: names), risk: risk, note: note,
+                                            bundleID: name.contains(".") ? name : nil))
         }
         let notes = FS.isBlocked(root) ? ["Couldn't read \(ctx.display(root)). Give MacSweep Full Disk Access to see everything."] : []
         return ScanResult(await Build.items(candidates, category: category, ctx: ctx).bySize(), notes: notes)
@@ -109,6 +133,13 @@ enum JunkScanners {
                 }
             }
         }
+        // Premiere Pro, After Effects and Audition rebuild these from your footage when they need them.
+        let adobe = support + "/Adobe/Common"
+        for (name, label) in [("Media Cache Files", "media cache files"), ("Media Cache", "media cache index"), ("Peak Files", "audio waveforms")]
+        where FS.isDir(adobe + "/" + name) {
+            candidates.append(PathCandidate(path: adobe + "/" + name, title: "Adobe \(label)", risk: .safe,
+                                            note: "Rebuilt from your original footage when a project needs it. Quit Adobe apps first; projects open a little slower the first time."))
+        }
         return ScanResult(await Build.items(candidates, category: id, ctx: ctx).bySize())
     }
 
@@ -117,7 +148,14 @@ enum JunkScanners {
             .children("~/.cache", nil, .safe, "Command-line tool cache, recreated automatically.",
                       skip: ["huggingface", "lm-studio", "torch", "whisper", "clip"]),
         ]
-        return ScanResult(await Locations.scan(locs, category: "xdgCache", ctx: ctx).bySize())
+        var items = await Locations.scan(locs, category: "xdgCache", ctx: ctx)
+        for index in items.indices {
+            if let command = manualDownloads[FS.name(items[index].paths[0])] {
+                items[index].risk = .review
+                items[index].note = manualDownloadNote(command)
+            }
+        }
+        return ScanResult(items.bySize())
     }
 
     static func logs(_ ctx: ScanContext) async -> ScanResult {
@@ -165,18 +203,48 @@ enum JunkScanners {
         #endif
     }
 
+    /// Partial downloads from Chrome/Edge, Firefox, Safari and Opera.
+    static let unfinishedDownloadExtensions: Set<String> = ["crdownload", "part", "download", "opdownload", "partial"]
+
+    /// The newest change anywhere inside: a folder's own date only moves when its direct contents change.
+    /// `complete` is false when the folder was too big to look through.
+    static func latestActivity(_ paths: [String], limit: Int = 2_000) -> (date: Date, complete: Bool)? {
+        var latest: Date?
+        var complete = true
+        for path in paths {
+            guard let info = FS.info(path) else { continue }
+            latest = max(latest ?? info.modified, info.modified)
+            guard info.isDirectory else { continue }
+            var seen = 0
+            TreeProbe.walk(path, limit: limit) { child, _, _ in
+                seen += 1
+                if let modified = FS.modified(child), modified > latest ?? modified { latest = modified }
+                return true
+            }
+            if seen >= limit { complete = false }
+        }
+        return latest.map { ($0, complete) }
+    }
+
     static func temporaryFiles(_ ctx: ScanContext) async -> ScanResult {
         let id = "temp"
         var candidates: [PathCandidate] = []
         let threeDays: TimeInterval = 3 * 86_400
-        func add(_ path: String, title: String, appleReview: Bool = false) {
-            let modified = FS.modified(path) ?? Date()
-            let old = Date().timeIntervalSince(modified) > threeDays
-            candidates.append(PathCandidate(
-                path: path, title: title, risk: old && !appleReview ? .safe : .review,
-                note: old ? "Temporary data that hasn't changed in days." : "Recently changed, so a running app may still be using it. Quit apps first.",
-                date: modified
-            ))
+        func add(_ path: String, title: String, appleReview: Bool = false, extraPaths: [String] = [], detail: String? = nil) {
+            let activity = latestActivity([path] + extraPaths)
+            let modified = activity?.date ?? Date()
+            let checked = activity?.complete ?? false
+            let old = checked && Date().timeIntervalSince(modified) > threeDays
+            let note: String
+            if old {
+                note = "Temporary data that hasn't changed in days."
+            } else if !checked {
+                note = "Too much inside to check everything, so a running app may still be using it. Quit apps first."
+            } else {
+                note = "Recently changed, so a running app may still be using it. Quit apps first."
+            }
+            candidates.append(PathCandidate(path: path, title: title, detail: detail, risk: old && !appleReview ? .safe : .review,
+                                            note: note, date: modified, extraPaths: extraPaths))
         }
         var temp = NSTemporaryDirectory()
         if temp.hasSuffix("/") { temp.removeLast() }
@@ -203,6 +271,29 @@ enum JunkScanners {
                 if name.hasPrefix("_bazel_") { continue }
                 add(path, title: "\(name) (\(root))")
             }
+        }
+        // Sandboxed apps get a temporary folder of their own. The folder itself belongs to macOS, so only
+        // what's inside it is offered.
+        let names = await ctx.appNamesByID()
+        let containers = ctx.p("~/Library/Containers")
+        for container in FS.list(containers) {
+            let tmp = containers + "/" + container + "/Data/tmp"
+            let inside = FS.list(tmp).filter { !Locations.ignorable.contains($0) }.map { tmp + "/" + $0 }
+            guard let first = inside.first else { continue }
+            add(first, title: "\(title(container, names: names)) · sandbox temporary files", appleReview: container.hasPrefix("com.apple."),
+                extraPaths: Array(inside.dropFirst()), detail: ctx.display(tmp))
+        }
+        // Downloads that never finished. Browsers start them again from scratch if you retry.
+        let downloads = ctx.p("~/Downloads")
+        for name in FS.list(downloads) where unfinishedDownloadExtensions.contains(FS.ext(name)) {
+            let path = downloads + "/" + name
+            let modified = latestActivity([path])?.date ?? Date()
+            let stale = Date().timeIntervalSince(modified) > 2 * 86_400
+            candidates.append(PathCandidate(
+                path: path, title: name, risk: stale ? .safe : .review,
+                note: stale ? "A download that never finished. Your browser starts it again if you retry it."
+                            : "A download that may still be in progress.",
+                badges: ["Unfinished download"], date: modified))
         }
         var items = await Build.items(candidates, category: id, ctx: ctx)
         if FileManager.default.isExecutableFile(atPath: "/usr/bin/atsutil") {
@@ -242,9 +333,16 @@ enum JunkScanners {
         for root in roots {
             for name in FS.list(root) where !Locations.ignorable.contains(name) {
                 let path = root + "/" + name
+                // macOS, not you, puts this folder in the Trash after an app or the Mac quits unexpectedly.
+                let lower = name.lowercased()
+                let recovered = lower.hasPrefix("recovered files") || lower.hasPrefix("recovered items")
                 candidates.append(PathCandidate(path: path, title: name,
                                                 detail: root == userTrash ? "In the Trash" : "In the Trash on \(root.split(separator: "/")[1])",
-                                                risk: .safe, note: "Already in the Trash. Removing it here deletes it permanently.",
+                                                risk: recovered ? .caution : .safe,
+                                                note: recovered
+                                                    ? "Files macOS rescued when an app or your Mac quit unexpectedly. They may be unsaved work that exists nowhere else. Removing it here deletes it permanently."
+                                                    : "Already in the Trash. Removing it here deletes it permanently.",
+                                                badges: recovered ? ["Recovered by macOS"] : [],
                                                 steps: [.deleteForever([path])]))
             }
         }
