@@ -1,6 +1,25 @@
 import Foundation
 @testable import SweepCore
 
+/// Stands in for Finder and the administrator prompt: records what MacSweep asks and answers as told,
+/// so no test ever waits on a real password prompt.
+final class FakeHelpers: @unchecked Sendable {
+    var scripts: [String] = []
+    var finderRequests: [[String]] = []
+    var administrator: (String) -> ShellResult = { _ in ShellResult(status: 1, stdout: "", stderr: "unexpected") }
+    var finder: ([String]) -> ShellResult = { _ in ShellResult(status: 1, stdout: "", stderr: "unexpected") }
+
+    var helpers: RemovalHelpers {
+        RemovalHelpers(administrator: { script in
+            self.scripts.append(script)
+            return self.administrator(script)
+        }, finder: { paths in
+            self.finderRequests.append(paths)
+            return self.finder(paths)
+        })
+    }
+}
+
 /// A throwaway folder tree that is removed when the test finishes.
 final class Sandbox {
     let root: String

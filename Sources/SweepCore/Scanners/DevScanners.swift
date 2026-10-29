@@ -234,7 +234,7 @@ enum DevScanners {
             .whole("~/.nvm/.cache", "nvm download cache", .safe, "Downloaded Node.js archives."),
             .whole("~/.volta/tools/inventory", "Volta download cache", .safe, "Downloaded archives."),
             .whole("~/.electron", "Electron downloads", .safe, redownload),
-            .whole("~/.expo", "Expo cache", .review, "Expo CLI state and caches."),
+            .whole("~/.expo", "Expo cache", .review, "Expo CLI state and caches. You may need to sign in to Expo again afterwards."),
         ]
         var found = await Locations.scan(versionLocs, category: id, ctx: ctx)
         if let active {
@@ -271,7 +271,9 @@ enum DevScanners {
                       toolchain + " Installed from python.org.", skip: ["Current"], dirsOnly: true, protectNewest: true),
             .whole("~/Library/Jupyter/runtime", "Jupyter runtime files", .safe, "Connection files from old notebook sessions."),
             .whole("~/.ipython/profile_default/history.sqlite", "IPython history", .review, "Your IPython command history."),
-            .whole("~/.matplotlib", "Matplotlib cache", .safe, "Font cache, rebuilt automatically."),
+            // Only the caches: the same folder holds your matplotlibrc and styles.
+            .children("~/.matplotlib", "Matplotlib font cache", .safe, "Font cache, rebuilt automatically.", extensions: ["json"]),
+            .whole("~/.matplotlib/tex.cache", "Matplotlib TeX cache", .safe, "Rendered TeX labels, rebuilt automatically."),
             .whole("~/.keras/datasets", "Keras datasets", .review, "Downloaded sample datasets."),
         ]
         for root in condaRoots {

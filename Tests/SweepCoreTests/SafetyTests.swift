@@ -31,6 +31,49 @@ final class SafetyTests: XCTestCase {
         }
     }
 
+    func testAllowsWhatScannersOffer() {
+        for path in ["/Users/me/.pnpm-store", "/Users/me/.node-gyp", "/Users/me/.electron", "/Users/me/.expo",
+                     "/Users/me/.templateengine", "/Users/me/.kube/cache", "/Users/me/.kube/cache/discovery/x.json",
+                     "/Users/me/.kube/http-cache", "/Users/me/Library/Mail Downloads", "/Users/me/movie.iso",
+                     "/Users/me/Thumbs.db", "/Users/me/.matplotlib/fontlist-v390.json"] {
+            XCTAssertFalse(refused(path), "should allow \(path): \(Safety.refusal(for: path, home: home) ?? "")")
+        }
+        for path in ["/Users/me/.kube", "/Users/me/.kube/config", "/Users/me/.kube/cache-not", "/Users/me/Library/Mail",
+                     "/Users/me/.zshrc", "/Users/me/.netrc", "/Users/me/Desktop"] {
+            XCTAssertTrue(refused(path), "should refuse \(path)")
+        }
+    }
+
+    func testFoldersDirectlyInHomeStayProtected() {
+        let box = Sandbox()
+        let home = box.dir("home")
+        box.dir("home/Code")
+        box.file("home/disk.iso")
+        XCTAssertNotNil(Safety.refusal(for: home + "/Code", home: home))
+        XCTAssertNil(Safety.refusal(for: home + "/disk.iso", home: home))
+        // A shortcut is only a pointer, unless it stands in for one of your folders.
+        try? FileManager.default.createSymbolicLink(atPath: home + "/.zshrc", withDestinationPath: box.path("gone/zshrc"))
+        try? FileManager.default.createSymbolicLink(atPath: home + "/Documents", withDestinationPath: box.path("gone/Documents"))
+        box.text("home/.bashrc", "export X=1\n")
+        XCTAssertNil(Safety.refusal(for: home + "/.zshrc", home: home))
+        XCTAssertNotNil(Safety.refusal(for: home + "/Documents", home: home))
+        XCTAssertNotNil(Safety.refusal(for: home + "/.bashrc", home: home))
+    }
+
+    func testOnlyRemovableItemsAreListed() {
+        let box = Sandbox()
+        let home = box.dir("home")
+        let cache = Item(categoryID: "x", title: "cache", risk: .safe, note: "", paths: [box.file("home/Library/Caches/a")])
+        let key = Item(categoryID: "x", title: "key", risk: .safe, note: "", paths: [box.file("home/.ssh/id_ed25519")])
+        let nothing = Item(categoryID: "x", title: "nothing", risk: .safe, note: "")
+        let tool = Item(id: "t", categoryID: "x", title: "tool", risk: .safe, note: "",
+                        steps: [.run(ShellCommand("/usr/bin/true", []))])
+        XCTAssertTrue(Safety.canRemove(cache, home: home))
+        XCTAssertFalse(Safety.canRemove(key, home: home))
+        XCTAssertFalse(Safety.canRemove(nothing, home: home))
+        XCTAssertTrue(Safety.canRemove(tool, home: home))
+    }
+
     func testCanonical() {
         XCTAssertEqual(Safety.canonical("/tmp//x/./y/"), "/private/tmp/x/y")
         XCTAssertEqual(Safety.canonical("/var/folders"), "/private/var/folders")

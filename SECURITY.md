@@ -16,9 +16,16 @@ the Trash or removing a Time Machine snapshot, cannot be undone. Keep a backup
 of important files.
 
 Grant Full Disk Access only if you want MacSweep to scan protected folders.
-File removal does not automatically escalate to administrator access. If a
-Trash move fails, MacSweep leaves the file in place. Use an app's own uninstaller
-for privileged installer files.
+MacSweep only lists items it can remove: its safety rules must allow every path,
+and nothing System Integrity Protection guards is listed. When macOS doesn't let
+MacSweep remove a selected item itself, Finder moves it to the Trash and asks for
+your password if the item belongs to the system. For permanent deletion, macOS asks
+for your administrator password once for the whole batch. As administrator,
+MacSweep runs only fixed system tools, checks that each item is still the exact
+file or folder it scanned, never follows symbolic links and never crosses into
+another drive. A Trash move never silently becomes permanent deletion. Removing an
+installer package deletes only the files that package installed and no other
+package shares.
 
 Local builds use an ad hoc signature. A public release needs a Developer ID
 signature and notarization. See [README.md](README.md) for the release process.

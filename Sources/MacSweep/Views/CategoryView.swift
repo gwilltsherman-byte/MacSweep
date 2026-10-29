@@ -178,16 +178,11 @@ struct CheckCell: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        if item.isRemovable {
-            Toggle("", isOn: Binding(get: { model.checked.contains(item.id) },
-                                     set: { model.setChecked(item.id, $0) }))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
-        } else {
-            Image(systemName: "hand.raised")
-                .foregroundStyle(.secondary)
-                .help(item.manualRemoval ?? "MacSweep can't remove this itself.")
-        }
+        // Scans only list items MacSweep can remove, so every row has a checkbox.
+        Toggle("", isOn: Binding(get: { model.checked.contains(item.id) },
+                                 set: { model.setChecked(item.id, $0) }))
+            .toggleStyle(.checkbox)
+            .labelsHidden()
     }
 }
 

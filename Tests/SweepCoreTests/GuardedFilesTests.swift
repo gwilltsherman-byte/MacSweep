@@ -80,6 +80,27 @@ final class GuardedFilesTests: XCTestCase {
         XCTAssertThrowsError(try PrivilegedCommands.checkTrustedExecutable(fake))
     }
 
+    #if os(macOS)
+    func testBackgroundTasksAreStoppedByLabel() throws {
+        XCTAssertNoThrow(try PrivilegedCommands.validate(ShellCommand("/bin/launchctl", ["bootout", "system/com.vendor.helper"]),
+                                                         home: "/Users/me"))
+        for label in ["system/../evil", "system/-x", "system/", "gui/501/com.vendor.agent", "system/a b"] {
+            XCTAssertThrowsError(try PrivilegedCommands.validate(ShellCommand("/bin/launchctl", ["bootout", label]), home: "/Users/me"), label)
+        }
+    }
+    #endif
+
+    func testPackageRemovalTakesBundlesWholeAndLeavesSharedOnesAlone() {
+        let own = ["/Applications/Foo.app/Contents/MacOS/Foo", "/Applications/Foo.app/Contents/Info.plist",
+                   "/Library/Frameworks/Shared.framework/Versions/A/Shared", "/usr/local/bin/foo", "/Library/Foo.plugin/x"]
+        let owners: [String: Set<String>] = ["/Applications/Foo.app": ["com.foo"], "/Library/Foo.plugin": ["com.foo"],
+                                             "/Library/Frameworks/Shared.framework": ["com.foo", "com.bar"]]
+        let targets = AppScanners.removalTargets(ownFiles: own, package: "com.foo", bundleOwners: owners) { $0 != "/Library/Foo.plugin" }
+        XCTAssertEqual(targets, ["/Applications/Foo.app", "/Library/Foo.plugin/x", "/usr/local/bin/foo"])
+        XCTAssertEqual(AppScanners.outermostBundle("/Applications/Foo.app/Contents/PlugIns/Bar.appex/x"), "/Applications/Foo.app")
+        XCTAssertNil(AppScanners.outermostBundle("/usr/local/bin/foo"))
+    }
+
     func testPrivilegedCommandsRejectArbitraryExecutablesAndOptions() {
         for command in [ShellCommand("/bin/sh", ["-c", "true"]),
                         ShellCommand("tmutil", ["deletelocalsnapshots", "2026-10-10-120000"]),

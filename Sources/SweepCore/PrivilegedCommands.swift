@@ -17,9 +17,9 @@ enum PrivilegedCommands {
         case "/usr/sbin/pkgutil":
             allowed = args.count == 2 && args[0] == "--forget" && token(args[1])
         case "/bin/launchctl":
-            allowed = args.count == 3 && args[0] == "bootout" && args[1] == "system" &&
-                args[2].hasPrefix("/Library/LaunchDaemons/") && args[2].hasSuffix(".plist") &&
-                FS.parent(args[2]) == "/Library/LaunchDaemons" && Safety.refusal(for: args[2], home: home) == nil
+            // Stops one system background task by its label.
+            allowed = args.count == 2 && args[0] == "bootout" && args[1].hasPrefix("system/") &&
+                args[1].dropFirst(7).range(of: "^[A-Za-z0-9][A-Za-z0-9_.+@:-]*$", options: .regularExpression) != nil
         case "/opt/local/bin/port":
             allowed = args == ["-N", "reclaim"] || (args.count == 3 && args[0] == "uninstall" &&
                 token(args[1]) && args[2].hasPrefix("@") && token(String(args[2].dropFirst())))
