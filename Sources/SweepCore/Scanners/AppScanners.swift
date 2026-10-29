@@ -290,10 +290,11 @@ enum AppScanners {
                 if job.disabled { badges.append("Disabled") }
                 badges.append(place.scope == "user" ? "Your account" : place.scope == "agent" ? "All users" : "System daemon")
                 var steps: [RemovalStep] = []
+                // Stopped by label, so it doesn't matter whether its file is already gone by then.
                 if place.scope == "daemon" {
-                    steps.append(.runAsAdmin(ShellCommand("/bin/launchctl", ["bootout", "system", path], allowFailure: true)))
+                    steps.append(.runAsAdmin(ShellCommand("/bin/launchctl", ["bootout", "system/" + job.label], allowFailure: true)))
                 } else {
-                    steps.append(.run(ShellCommand("/bin/launchctl", ["bootout", "gui/\(uid)", path], allowFailure: true)))
+                    steps.append(.run(ShellCommand("/bin/launchctl", ["bootout", "gui/\(uid)/" + job.label], allowFailure: true)))
                 }
                 steps.append(.files([path]))
                 candidates.append(PathCandidate(path: path, title: job.label, detail: job.program.map { ctx.display($0) },
@@ -453,6 +454,39 @@ enum AppScanners {
         return FS.parent(path)
     }
 
+    /// Folders that are one thing to macOS, which packages install as a whole: apps, frameworks, plug-ins…
+    static let bundleExtensions: Set<String> = [
+        "app", "framework", "bundle", "plugin", "kext", "dext", "systemextension", "appex", "xpc", "prefpane",
+        "component", "vst", "vst3", "aaxplugin", "clap", "mdimporter", "qlgenerator", "saver", "dictionary",
+        "driver", "fs", "osax", "action", "service", "wdgt", "mailbundle",
+    ]
+
+    /// The outermost bundle a path is in (or is), such as /Applications/Foo.app.
+    static func outermostBundle(_ path: String) -> String? {
+        var prefix = ""
+        for component in path.split(separator: "/") {
+            prefix += "/" + component
+            if bundleExtensions.contains(FS.ext(String(component))) { return prefix }
+        }
+        return nil
+    }
+
+    /// What removing a package deletes: each bundle it installed, as a whole (an app that updated itself has
+    /// files the installer's record doesn't list), and its other files one by one. A bundle another package
+    /// also put files in stays, and so does everything in it.
+    static func removalTargets(ownFiles: [String], package: String, bundleOwners: [String: Set<String>],
+                               allowed: (String) -> Bool) -> [String] {
+        var targets = Set<String>()
+        for file in ownFiles {
+            if let bundle = outermostBundle(file) {
+                guard bundleOwners[bundle] == Set([package]) else { continue }
+                if allowed(bundle) { targets.insert(bundle); continue }
+            }
+            targets.insert(file)
+        }
+        return targets.sorted()
+    }
+
     static func receiptPaths(volume: String, location: String, relative: [String]) -> [String] {
         relative.map { FS.join([volume.isEmpty ? "/" : volume, location, $0]) }
     }
@@ -486,9 +520,15 @@ enum AppScanners {
         }
         let found = receipts.compactMap { $0 }
 
-        // Files that more than one package claims are left alone.
+        // Files that more than one package claims are left alone, and so are bundles several packages fill.
         var claims: [String: Int] = [:]
-        for receipt in found { for file in receipt.files { claims[file, default: 0] += 1 } }
+        var bundleOwners: [String: Set<String>] = [:]
+        for receipt in found {
+            for file in receipt.files { claims[file, default: 0] += 1 }
+            for path in receipt.files + receipt.dirs {
+                if let bundle = outermostBundle(path) { bundleOwners[bundle, default: []].insert(receipt.id) }
+            }
+        }
 
         var items: [Item] = []
         for receipt in found {
@@ -503,15 +543,21 @@ enum AppScanners {
                 ))
                 continue
             }
+            let targets = removalTargets(ownFiles: ownFiles, package: receipt.id, bundleOwners: bundleOwners) {
+                Safety.refusal(for: $0, home: home) == nil
+            }
+            // Everything it installed is shared with other packages, so there's nothing it can take away alone.
+            guard !targets.isEmpty else { continue }
+            let measured = await ctx.sizes(targets).reduce(0, +)
             let tops = Array(Set(ownFiles.map(installRoot))).sorted()
             items.append(Item(
                 id: "\(id)|\(receipt.id)", categoryID: id, title: receipt.id,
                 detail: "Version \(receipt.version) · \(ownFiles.count) of \(receipt.recordedCount) files still present",
-                size: size, risk: .caution,
-                note: "Shows the files this .pkg installer put on your Mac (in \(tops.prefix(4).map { ctx.display($0) }.joined(separator: ", "))\(tops.count > 4 ? " and more" : "")). Use the software’s own uninstaller to remove it safely.",
-                paths: tops,
+                size: max(size, measured), risk: .caution,
+                note: "Deletes what this .pkg installer put on your Mac (in \(tops.prefix(4).map { ctx.display($0) }.joined(separator: ", "))\(tops.count > 4 ? " and more" : "")), then forgets the installer's record. Files another installer also added stay. If the software has its own uninstaller, that may also undo settings it changed elsewhere.",
+                paths: targets,
                 date: receipt.installTime, dateKind: .installed,
-                steps: [], manualRemoval: "Use the software's own uninstaller. MacSweep does not run receipt-derived deletion scripts as administrator."
+                steps: [.files(targets), .runAsAdmin(ShellCommand("/usr/sbin/pkgutil", ["--forget", receipt.id]))]
             ))
         }
         return ScanResult(items.bySize())

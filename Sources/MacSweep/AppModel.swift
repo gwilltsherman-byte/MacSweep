@@ -250,7 +250,9 @@ final class AppModel: ObservableObject {
             warnings.append("\(caution) item\(caution == 1 ? " is" : "s are") rated Careful and may contain your own data.")
         }
         if items.contains(where: \.needsAdmin) || items.contains(where: { $0.paths.contains { $0.hasPrefix("/Library/") || $0.hasPrefix("/Applications/") || $0.hasPrefix("/usr/") || $0.hasPrefix("/private/") } }) {
-            warnings.append("Supported system tools may need your administrator password. Files that cannot safely be removed are left in place; Trash failures never become permanent deletion.")
+            warnings.append(useTrash
+                ? "Some of these belong to the system, so Finder may ask for your administrator password to move them to the Trash, and system tools may ask for it too."
+                : "Some of these belong to the system, so macOS will ask for your administrator password to delete them.")
         }
         let commands = items.filter { $0.steps.contains { if case .run = $0 { return true } else { return false } } }.count
         if commands > 0 {
@@ -306,6 +308,12 @@ final class AppModel: ObservableObject {
         recomputeGrandTotal()
         refreshEnvironment()
         sheet = .results
+    }
+
+    static func openAppManagementSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     func emptyTrash() {

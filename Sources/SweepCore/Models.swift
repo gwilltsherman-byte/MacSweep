@@ -118,10 +118,11 @@ public struct ShellCommand: Hashable, Sendable {
 }
 
 public enum RemovalStep: Hashable, Sendable {
-    /// Move to the Trash or delete, depending on the user's choice. Escalates to an
-    /// administrator password prompt when the files aren't writable by the user.
+    /// Move to the Trash or delete, depending on the user's choice. When macOS doesn't let the user do that,
+    /// Finder moves them to the Trash or an administrator deletes them (one password prompt).
     case files([String])
-    /// Always delete permanently (for things already in the Trash, .DS_Store files and the like).
+    /// Always delete permanently (for things already in the Trash, .DS_Store files and the like), with an
+    /// administrator's help if needed.
     case deleteForever([String])
     case run(ShellCommand)
     case runAsAdmin(ShellCommand)
@@ -155,15 +156,13 @@ public struct Item: Identifiable, Hashable, Sendable {
     public var steps: [RemovalStep]
     /// Identities of existing deletion targets at scan time. Missing targets stay missing.
     public var pathIdentities: [String: PathIdentity]
-    /// Shown instead of a checkbox when MacSweep can't remove the item itself.
-    public var manualRemoval: String?
     /// What MacSweep found on disk that made the rating more careful than the scanner's own (plain sentences).
     public var reasons: [String]
 
     public init(id: String? = nil, categoryID: String, title: String, detail: String = "", size: Int64? = nil,
                 risk: Risk, note: String, paths: [String] = [], date: Date? = nil, dateKind: DateKind = .modified,
                 badges: [String] = [], bundleID: String? = nil, keepPath: String? = nil,
-                steps: [RemovalStep]? = nil, manualRemoval: String? = nil, reasons: [String] = []) {
+                steps: [RemovalStep]? = nil, reasons: [String] = []) {
         self.id = id ?? "\(categoryID)|\(paths.first ?? title)"
         self.categoryID = categoryID
         self.title = title
@@ -181,10 +180,10 @@ public struct Item: Identifiable, Hashable, Sendable {
         self.pathIdentities = Dictionary(uniqueKeysWithValues: Set(self.steps.flatMap(\.paths)).compactMap { path in
             FS.info(path).map { (path, PathIdentity($0)) }
         })
-        self.manualRemoval = manualRemoval
         self.reasons = reasons
     }
 
+    /// Every item a scan lists is removable (see `Safety.canRemove`).
     public var isRemovable: Bool { !steps.isEmpty }
 
     /// A program had one of its files open when MacSweep looked.

@@ -81,6 +81,159 @@ final class RemoverTests: XCTestCase {
         XCTAssertEqual(parsed[1], .some("boom"))
     }
 
+    #if os(macOS)
+    func testLockedFilesAreRemoved() async throws {
+        let box = Sandbox()
+        let locked = box.file("home/Library/Caches/com.foo/locked.bin")
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: locked)
+        let folder = Item(categoryID: "userCaches", title: "foo", risk: .safe, note: "", paths: [FS.parent(locked)])
+        let gone = await Remover(home: box.path("home"), helpers: FakeHelpers().helpers)
+            .remove([folder], options: RemovalOptions(useTrash: false))
+        XCTAssertEqual(gone.removed, [folder.id], gone.failures[folder.id] ?? "")
+        XCTAssertFalse(FS.exists(FS.parent(locked)))
+
+        let file = box.file("home/Library/Caches/other.bin")
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: file)
+        let other = Item(categoryID: "userCaches", title: "other", risk: .safe, note: "", paths: [file])
+        let trashed = await Remover(home: box.path("home"), helpers: FakeHelpers().helpers)
+            .remove([other], options: RemovalOptions(useTrash: true))
+        XCTAssertEqual(trashed.removed, [other.id], trashed.failures[other.id] ?? "")
+        XCTAssertFalse(FS.exists(file))
+        XCTAssertEqual(FS.list(box.path("home/.Trash")).count, 1)
+    }
+
+    /// An access control entry that stops even the owner from deleting, as macOS uses for protected items.
+    private func guardFile(_ path: String) {
+        XCTAssertTrue(Shell.execute("/bin/chmod", ["+a", "everyone deny delete", path], environment: nil, timeout: 10).ok)
+    }
+
+    private func unguard(_ path: String) {
+        _ = Shell.execute("/bin/chmod", ["-N", path], environment: nil, timeout: 10)
+    }
+
+    func testWhatMacOSWontLetMacSweepDeleteGoesToAnAdministrator() async throws {
+        let box = Sandbox()
+        let home = box.dir("home")
+        let guarded = box.file("home/Library/Caches/guarded.bin")
+        guardFile(guarded)
+        defer { unguard(guarded) }
+        let inode = try XCTUnwrap(FS.info(guarded)).inode
+        let item = Item(categoryID: "userCaches", title: "guarded", risk: .safe, note: "", paths: [guarded])
+        let fake = FakeHelpers()
+        fake.administrator = { _ in ShellResult(status: 0, stdout: "MSOK 0\n", stderr: "") }
+        let outcome = await Remover(home: home, helpers: fake.helpers).remove([item], options: RemovalOptions(useTrash: false))
+        XCTAssertEqual(outcome.removed, [item.id])
+        XCTAssertTrue(fake.finderRequests.isEmpty)
+        let script = try XCTUnwrap(fake.scripts.first)
+        XCTAssertTrue(script.contains("gone ./guarded.bin \(inode) || failed=1"), script)
+        XCTAssertTrue(script.contains("cd -P -- \(Shell.quote(try XCTUnwrap(FS.realPath(FS.parent(guarded)))))"), script)
+    }
+
+    func testMovingWhatMacOSWontLetMacSweepMoveIsFindersJob() async throws {
+        let box = Sandbox()
+        let home = box.dir("home")
+        let guarded = box.file("home/Library/Caches/guarded.bin")
+        guardFile(guarded)
+        defer { unguard(guarded) }
+        let item = Item(categoryID: "userCaches", title: "guarded", risk: .safe, note: "", paths: [guarded])
+
+        let refusing = FakeHelpers()
+        refusing.finder = { _ in ShellResult(status: 0, stdout: "MSFAIL 0 -1743 Not authorized to send Apple events to Finder.\n", stderr: "") }
+        let refused = await Remover(home: home, helpers: refusing.helpers).remove([item], options: RemovalOptions(useTrash: true))
+        XCTAssertTrue(refused.failures[item.id]?.contains("Automation") == true, refused.failures[item.id] ?? "")
+        XCTAssertTrue(refusing.scripts.isEmpty, "a Trash move never becomes a permanent deletion")
+        XCTAssertTrue(FS.exists(guarded))
+
+        let fake = FakeHelpers()
+        fake.finder = { paths in
+            for path in paths {
+                self.unguard(path)
+                try? FileManager.default.moveItem(atPath: path, toPath: box.path("finder-moved-" + FS.name(path)))
+            }
+            return ShellResult(status: 0, stdout: "MSALL\n", stderr: "")
+        }
+        let outcome = await Remover(home: home, helpers: fake.helpers).remove([item], options: RemovalOptions(useTrash: true))
+        XCTAssertEqual(outcome.removed, [item.id], outcome.failures[item.id] ?? "")
+        XCTAssertEqual(fake.finderRequests, [[guarded]])
+        XCTAssertTrue(outcome.movedToTrash.isEmpty, "it was meant for the Trash anyway")
+    }
+
+    func testFinderMovesWhatEvenAnAdministratorMayNotDelete() async throws {
+        let box = Sandbox()
+        let home = box.dir("home")
+        let guarded = box.file("home/Library/Caches/guarded.bin")
+        guardFile(guarded)
+        defer { unguard(guarded) }
+        let item = Item(categoryID: "userCaches", title: "guarded", risk: .safe, note: "", paths: [guarded])
+        let fake = FakeHelpers()
+        fake.administrator = { _ in
+            ShellResult(status: 0, stdout: "MSFAIL 0 find: -delete: unlinkat(./guarded.bin): Operation not permitted\n", stderr: "")
+        }
+        fake.finder = { paths in
+            for path in paths { self.unguard(path); try? FileManager.default.removeItem(atPath: path) }
+            return ShellResult(status: 0, stdout: "MSALL\n", stderr: "")
+        }
+        let outcome = await Remover(home: home, helpers: fake.helpers).remove([item], options: RemovalOptions(useTrash: false))
+        XCTAssertEqual(outcome.removed, [item.id], outcome.failures[item.id] ?? "")
+        XCTAssertEqual(outcome.movedToTrash, [item.id])
+    }
+
+    func testSystemToolsWaitForTheirItemsFiles() async throws {
+        let box = Sandbox()
+        let home = box.dir("home")
+        let guarded = box.file("home/Library/Caches/pkg/file.bin")
+        guardFile(guarded)
+        defer { unguard(guarded) }
+        let item = Item(id: "pkg", categoryID: "receipts", title: "pkg", risk: .caution, note: "", paths: [guarded],
+                        steps: [.files([guarded]), .runAsAdmin(ShellCommand("/usr/sbin/pkgutil", ["--forget", "com.vendor.pkg"]))])
+        let fake = FakeHelpers()
+        fake.administrator = { _ in ShellResult(status: 0, stdout: "MSOK 0\nMSOK 1\n", stderr: "") }
+        let outcome = await Remover(home: home, helpers: fake.helpers).remove([item], options: RemovalOptions(useTrash: false))
+        XCTAssertEqual(outcome.removed, [item.id], outcome.failures[item.id] ?? "")
+        let script = try XCTUnwrap(fake.scripts.first)
+        let forget = try XCTUnwrap(script.range(of: "op_1() {\n"))
+        XCTAssertTrue(script[forget.upperBound...].hasPrefix("[ \"${ok_0:-}\" = 1 ] ||"), script)
+    }
+
+    /// The administrator script itself, run as you rather than root: it deletes the scanned item, Locked files
+    /// and all, and leaves alone anything that isn't what was scanned.
+    func testAdministratorDeletionRemovesOnlyTheScannedItem() throws {
+        let box = Sandbox()
+        let folder = box.dir("home/Library/Caches/vendor")
+        box.file("home/Library/Caches/vendor/old/data.bin")
+        let locked = box.file("home/Library/Caches/vendor/old/deeper/locked.bin")
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: locked)
+        let old = folder + "/old"
+        let swapped = box.file("home/Library/Caches/vendor/swapped.bin")
+        let real = try XCTUnwrap(FS.realPath(folder))
+        let lines = Remover.adminDeletion(in: real, [("old", try XCTUnwrap(FS.info(old)).inode),
+                                                     ("swapped.bin", try XCTUnwrap(FS.info(swapped)).inode + 1),
+                                                     ("missing", 42)])
+        let script = box.text("s.sh", Remover.adminScript(for: [lines]))
+        let result = Shell.execute("/bin/sh", [script], environment: nil, timeout: 60)
+        XCTAssertFalse(FS.exists(old), result.stdout)
+        XCTAssertTrue(FS.exists(swapped))
+        let failure = try XCTUnwrap(Remover.parseAdminOutput(result.stdout)[0] ?? nil, result.stdout)
+        XCTAssertTrue(failure.contains("swapped.bin changed"), failure)
+    }
+
+    func testAdministratorDeletionStaysInItsFolder() throws {
+        let box = Sandbox()
+        let target = box.file("home/Library/Caches/vendor/data.bin")
+        let elsewhere = box.file("elsewhere/data.bin")
+        let lines = Remover.adminDeletion(in: try XCTUnwrap(FS.realPath(box.path("home/Library/Caches/vendor"))),
+                                          [("data.bin", try XCTUnwrap(FS.info(target)).inode)])
+        // The folder is swapped for a symlink to somewhere else after scanning.
+        try FileManager.default.moveItem(atPath: box.path("home/Library/Caches/vendor"), toPath: box.path("home/Library/Caches/moved"))
+        try FileManager.default.createSymbolicLink(atPath: box.path("home/Library/Caches/vendor"), withDestinationPath: box.path("elsewhere"))
+        let script = box.text("s.sh", Remover.adminScript(for: [lines]))
+        let result = Shell.execute("/bin/sh", [script], environment: nil, timeout: 60)
+        XCTAssertTrue(FS.exists(elsewhere))
+        XCTAssertTrue(FS.exists(box.path("home/Library/Caches/moved/data.bin")))
+        XCTAssertNotNil(Remover.parseAdminOutput(result.stdout)[0] ?? nil, result.stdout)
+    }
+    #endif
+
     func testPlanDescribesEverything() {
         let items = [
             Item(categoryID: "a", title: "x", risk: .safe, note: "", paths: ["/Users/me/Library/Caches/x"]),

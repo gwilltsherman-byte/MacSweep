@@ -7,9 +7,10 @@ public enum Catalog {
         CategoryScanner(SweepCategory(id: id, title: title, section: section, symbol: symbol, summary: summary,
                                       help: CategoryHelpText.all[id])) { ctx in
             var result = await scan(ctx)
-            // Item ids must be unique within a category (the UI relies on it).
+            // Item ids must be unique within a category (the UI relies on it), and nothing is listed that
+            // MacSweep couldn't then remove.
             var seen = Set<String>()
-            result.items = result.items.filter { seen.insert($0.id).inserted }
+            result.items = result.items.filter { seen.insert($0.id).inserted && Safety.canRemove($0, home: ctx.home) }
             // Every rating gets a second look at what is actually on disk and in use right now.
             result.items = await Importance.assess(result.items, category: id, ctx: ctx)
             return result
@@ -55,7 +56,7 @@ public enum Catalog {
         category("fonts", "Fonts", .apps, "textformat",
                  "Fonts you or your apps installed.", { await AppScanners.fonts($0) }),
         category("receipts", "Installer Packages", .apps, "shippingbox.circle",
-                 "Software installed with .pkg installers, with locations and guidance for its own uninstaller.",
+                 "Software installed with .pkg installers. Removing one deletes the files it installed and forgets its record.",
                  { await AppScanners.receipts($0) }),
         category("appleExtras", "Optional Apple Content", .apps, "music.note.list",
                  "GarageBand and Logic sound libraries, upgrade leftovers and extra dictionaries.", { await AppScanners.appleExtras($0) }),

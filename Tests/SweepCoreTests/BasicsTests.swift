@@ -128,7 +128,8 @@ final class ExplanationTests: XCTestCase {
         XCTAssertEqual(RemovalPlan.kinds(for: cache, useTrash: true), [.trash])
 
         let system = Item(categoryID: "systemCaches", title: "y", risk: .safe, note: "", paths: ["/Library/Caches/y"])
-        XCTAssertTrue(RemovalPlan.recovery(for: system, useTrash: true, home: home).contains("left in place"))
+        XCTAssertTrue(RemovalPlan.recovery(for: system, useTrash: true, home: home).contains("Finder moves it"))
+        XCTAssertTrue(RemovalPlan.recovery(for: system, useTrash: false, home: home).contains("administrator password"))
 
         let trashed = Item(categoryID: "trash", title: "z", risk: .safe, note: "", steps: [.deleteForever(["/Users/me/.Trash/z"])])
         XCTAssertTrue(RemovalPlan.recovery(for: trashed, useTrash: true, home: home).contains("deleted for good"))

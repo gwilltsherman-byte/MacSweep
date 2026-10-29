@@ -44,6 +44,17 @@ Settings, Privacy & Security, then reopen it. Rebuilding may require granting
 access again. Review selected items and the confirmation sheet before removing
 files; some system commands cannot be undone.
 
+Everything MacSweep lists, it can remove. Items that belong to the system need your
+administrator password. Finder asks for it when moving them to the Trash, and macOS
+asks once per removal when deleting them for good. The first time, macOS also asks
+whether MacSweep may use Finder. macOS may only let MacSweep delete apps from
+other developers for good once it is turned on under App Management in Privacy &
+Security. Until then, MacSweep has Finder move those apps to the Trash instead.
+
+If the app shows a blank icon after building, build it again with `./build.sh`:
+the build now draws the icon before the app first runs and tells macOS about the
+new copy. If Finder or the Dock still shows the old icon, run `killall Dock Finder`.
+
 ## How items are rated
 
 Every item is rated **Safe** (rebuilt or downloaded again automatically), **Check first**

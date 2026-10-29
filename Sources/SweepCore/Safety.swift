@@ -11,9 +11,11 @@ public enum Safety {
         // macOS volumes commonly ignore case. The deny list must do so too.
         let path = canonical(rawPath).lowercased()
         let homePath = canonical(home).lowercased()
-        let credentials = [".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".codex", ".config", ".local/share/keyrings",
-                           ".netrc", ".npmrc", ".pypirc", "Library/Keychains", "Library/Application Support/gcloud"].map { $0.lowercased() }
-        if credentials.contains(where: { path == homePath + "/" + $0 || path.hasPrefix(homePath + "/" + $0 + "/") }) {
+        func inHome(_ relative: String) -> Bool {
+            let full = homePath + "/" + relative.lowercased()
+            return path == full || path.hasPrefix(full + "/")
+        }
+        if credentials.contains(where: inHome) && !credentialCaches.contains(where: inHome) {
             return "Credentials or account configuration"
         }
         let parts = path.split(separator: "/").map(String.init)
@@ -42,9 +44,10 @@ public enum Safety {
         let parent = FS.parent(path)
         if protectedParents.contains(parent) && !allowedDirectChildren.map({ $0.lowercased() }).contains(path) {
             // e.g. ~/Documents, ~/Library/Caches, /Library/Fonts, /usr/bin – never the folder itself.
-            if !(parent == homePath && isDisposableHomeEntry(FS.name(path))) {
-                return "Protected folder"
-            }
+            let name = FS.name(path)
+            let allowed = (parent == homePath && isRemovableHomeEntry(name, at: canonical(rawPath)))
+                || (parent == homePath + "/library" && removableLibraryEntries.contains(name))
+            if !allowed { return "Protected folder" }
         }
 
         let forbiddenPrefixes = [
@@ -65,21 +68,71 @@ public enum Safety {
         "/private/var/log/DiagnosticMessages",
     ]
 
+    /// Places in your home folder that hold keys, tokens or account settings.
+    static let credentials = [".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".codex", ".config", ".local/share/keyrings",
+                              ".netrc", ".npmrc", ".pypirc", "Library/Keychains", "Library/Application Support/gcloud"]
+
+    /// Caches kept inside those places, which hold no secrets themselves.
+    static let credentialCaches = [".kube/cache", ".kube/http-cache"]
+
+    /// Folders directly in ~/Library that are copies an app made rather than part of the Library itself (lower case).
+    static let removableLibraryEntries: Set<String> = ["mail downloads"]
+
+    /// Your own folders directly in the home folder, and the tools' folders everything else lives in (lower case).
+    static let homeFolders: Set<String> = [
+        "library", "documents", "desktop", "downloads", "pictures", "movies", "music", "public",
+        "applications", "sites", "developer", "projects", "dropbox", "google drive", "onedrive",
+        "icloud drive (archive)", "creative cloud files", ".ssh", ".gnupg", ".config", ".local",
+        ".trash", ".cache", ".npm", ".cargo", ".rustup", ".m2", ".gradle", "go",
+    ]
+
+    /// Your folders and settings directly in the home folder (lower case).
+    static let homeKeep = homeFolders.union([".zshrc", ".bashrc", ".bash_profile", ".zprofile", ".profile", ".gitconfig"])
+
+    /// Tool caches and downloads directly in the home folder that MacSweep offers as a whole (lower case).
+    static let disposableHomeEntries: Set<String> = [
+        ".diffusionbee", ".ollama", ".lmstudio", ".gpt4all", ".keras", ".torch",
+        ".pnpm-store", ".node-gyp", ".electron", ".expo", ".templateengine",
+    ]
+
     /// Items directly in the home folder that are tool caches/state rather than user folders.
     static func isDisposableHomeEntry(_ name: String) -> Bool {
-        let keep: Set<String> = [
-            "Library", "Documents", "Desktop", "Downloads", "Pictures", "Movies", "Music", "Public",
-            "Applications", "Sites", "Developer", "Projects", "Dropbox", "Google Drive", "OneDrive",
-            "iCloud Drive (Archive)", "Creative Cloud Files", ".ssh", ".gnupg", ".config", ".local",
-            ".zshrc", ".bashrc", ".bash_profile", ".zprofile", ".profile", ".gitconfig",
-            ".Trash", ".cache", ".npm", ".cargo", ".rustup", ".m2", ".gradle", "go",
-        ]
+        let lower = name.lowercased()
+        // Finder metadata is also disposable; this does not allow unknown dot-folders.
+        if [".ds_store", ".localized"].contains(lower) || lower.hasPrefix("._") { return true }
         // Unknown dot-folders may hold credentials, databases or application state.
         // Only known disposable entries can bypass the protected home-folder rule.
-        let disposable: Set<String> = [".diffusionbee", ".ollama", ".lmstudio", ".gpt4all", ".keras", ".torch"]
-        // Finder metadata is also disposable; this does not allow unknown dot-folders.
-        if [".ds_store", ".localized"].contains(name.lowercased()) || name.hasPrefix("._") { return true }
-        return disposable.contains(name.lowercased()) && !keep.map({ $0.lowercased() }).contains(name.lowercased())
+        return disposableHomeEntries.contains(lower) && !homeKeep.contains(lower)
+    }
+
+    /// What may go from directly inside the home folder: known disposable entries, ordinary files such as a big
+    /// download or a duplicate, and shortcuts (symlinks), which are only pointers: removing one never touches
+    /// what it points to. Your folders, even as shortcuts, and your hidden settings stay protected.
+    static func isRemovableHomeEntry(_ name: String, at path: String) -> Bool {
+        if isDisposableHomeEntry(name) { return true }
+        let lower = name.lowercased()
+        let info = FS.info(path)
+        if info?.isSymlink == true { return !homeFolders.contains(lower) }
+        if lower.hasPrefix(".") || homeKeep.contains(lower) { return false }
+        return info?.isDirectory != true
+    }
+
+    /// System Integrity Protection's flags: SF_RESTRICTED (only Apple may change it) and SF_NOUNLINK (it may not
+    /// be removed, as on /Applications itself, which says nothing about what's inside).
+    static let restrictedFlag: UInt32 = 0x0008_0000
+    static let noUnlinkFlag: UInt32 = 0x0010_0000
+
+    /// Not even an administrator can remove an item macOS protects this way, or anything in a restricted folder.
+    static func isSealed(_ path: String) -> Bool {
+        if let info = FS.info(path), info.flags & (restrictedFlag | noUnlinkFlag) != 0 { return true }
+        if let folder = FS.info(FS.parent(path)), folder.flags & restrictedFlag != 0 { return true }
+        return false
+    }
+
+    /// Whether MacSweep can remove an item at all: it has a way to, these rules allow every path it would
+    /// touch, and macOS hasn't sealed any of them. Scans only ever list items that pass.
+    public static func canRemove(_ item: Item, home: String) -> Bool {
+        item.isRemovable && item.steps.flatMap(\.paths).allSatisfy { refusal(for: $0, home: home) == nil && !isSealed($0) }
     }
 
     /// Resolves the /var, /tmp and /etc symlinks to /private/… and tidies slashes.

@@ -19,15 +19,15 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1.0</string>
+	<string>1.2.0</string>
 	<key>CFBundleVersion</key>
-	<string>2</string>
+	<string>3</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>MacSweep asks System Events for your login items so you can remove them, and asks Finder to empty the Trash when you tell it to.</string>
+	<string>MacSweep asks System Events for your login items so you can remove them. It asks Finder to move items to the Trash that macOS only lets Finder move, and to empty the Trash when you tell it to.</string>
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>MacSweep looks for large, duplicate and leftover files on your Desktop.</string>
 	<key>NSDocumentsFolderUsageDescription</key>

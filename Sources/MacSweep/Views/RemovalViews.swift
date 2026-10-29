@@ -126,7 +126,7 @@ struct ConfirmRemovalView: View {
             }
             if admin > 0 {
                 ExplainRow(symbol: "lock", title: "\(Fmt.count(admin, "item")) need an administrator password",
-                           text: "and are deleted for good rather than moved to the Trash.")
+                           text: "for a system tool, such as forgetting an installer's record. What a tool removes can't be put back from the Trash.")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -143,7 +143,7 @@ struct RemovalProgressView: View {
                 .lineLimit(2)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity)
-            Text("Please keep MacSweep open. If macOS asks for your password, it's approving a supported system tool. Files that cannot be removed safely are left in place.")
+            Text("Please keep MacSweep open. For items that belong to the system, macOS or Finder asks for your administrator password, and macOS may ask once whether MacSweep may use Finder.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -162,6 +162,8 @@ struct RemovalResultsView: View {
         let outcome = model.outcome ?? RemovalOutcome()
         let failed = model.outcomeItems.filter { outcome.failures[$0.id] != nil }
         let removedCount = outcome.removed.count
+        let protected = failed.contains { (outcome.failures[$0.id] ?? "").contains("not permitted") }
+        let trashed = !outcome.movedToTrash.isEmpty
 
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
@@ -173,6 +175,11 @@ struct RemovalResultsView: View {
                     Text("About \(Fmt.bytes(outcome.freedEstimate)) \(model.lastRemovalUsedTrash ? "moved out of the way. Empty the Trash to get the space back." : "freed.")")
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            if trashed {
+                InfoBanner(text: "\(Fmt.count(outcome.movedToTrash.count, "item")) went to the Trash instead, because macOS lets only Finder remove \(outcome.movedToTrash.count == 1 ? "it" : "them") (apps from other developers, for example). Empty the Trash to delete \(outcome.movedToTrash.count == 1 ? "it" : "them") for good.",
+                           symbol: "trash", tint: .blue)
             }
 
             if !failed.isEmpty {
@@ -187,14 +194,18 @@ struct RemovalResultsView: View {
                     }
                 }
                 .frame(height: 220)
-                if !model.hasFullDiskAccess {
-                    InfoBanner(text: "\"Operation not permitted\" usually means macOS is protecting the item. Full Disk Access fixes most of these.",
+                if protected || !model.hasFullDiskAccess {
+                    InfoBanner(text: "\"Operation not permitted\" means macOS is protecting the item. Turn MacSweep on under Full Disk Access, and under App Management for apps, in System Settings › Privacy & Security. Then scan and try again.",
                                symbol: "lock", tint: .orange)
+                    HStack {
+                        Button("Open Full Disk Access") { AppModel.openFullDiskAccessSettings() }
+                        Button("Open App Management") { AppModel.openAppManagementSettings() }
+                    }
                 }
             }
 
             HStack {
-                if model.lastRemovalUsedTrash && removedCount > 0 {
+                if (model.lastRemovalUsedTrash && removedCount > 0) || trashed {
                     Button("Empty Trash") { confirmation.emptyTrash = true }
                         .help("Asks Finder to empty the Trash, deleting everything in it for good")
                 }

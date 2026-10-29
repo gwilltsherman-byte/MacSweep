@@ -205,7 +205,9 @@ enum FileScanners {
         let id = "clutter"
         let walk = await ctx.homeWalk()
         var items: [Item] = []
-        func aggregate(_ paths: [String], key: String, title: String, note: String) {
+        func aggregate(_ found: [String], key: String, title: String, note: String) {
+            // Each file goes on its own, so one in a protected place doesn't hold up the rest.
+            let paths = found.filter { Safety.refusal(for: $0, home: ctx.home) == nil }
             guard !paths.isEmpty else { return }
             let size = paths.reduce(Int64(0)) { $0 + (FS.info($1)?.allocated ?? 0) }
             items.append(Item(id: "\(id)|\(key)", categoryID: id, title: "\(title) (\(paths.count))",

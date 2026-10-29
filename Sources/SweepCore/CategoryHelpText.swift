@@ -63,8 +63,8 @@ enum CategoryHelpText {
             ifDeleted: "Documents that use a deleted font will show a different font instead."),
         "receipts": CategoryHelp(
             "Software that was installed with a .pkg installer, which can put files in many places. MacSweep uses the installer's own record of which files it added.",
-            ifDeleted: "Use the software's own uninstaller to remove its files. Items marked Receipt only let you forget an old installer record; they do not delete files.",
-            tip: "If the software has its own uninstaller, use that instead."),
+            ifDeleted: "MacSweep deletes the files the installer added that no other installer shares, then forgets the installer's record. That needs your administrator password. Items marked Receipt only have no files left; removing them only forgets the record.",
+            tip: "If the software came with its own uninstaller, that may also undo settings it changed elsewhere."),
         "appleExtras": CategoryHelp(
             "Optional extras from Apple: sound libraries for GarageBand and Logic Pro, leftovers from macOS upgrades, and extra dictionaries.",
             ifDeleted: "GarageBand and Logic offer to download the sounds again when you need them. Upgrade leftovers are old settings files you rarely need."),

@@ -22,6 +22,8 @@ public struct FileInfo: Sendable {
     public let linkCount: UInt64
     /// An iCloud/File Provider placeholder whose contents aren't on this Mac.
     public let isDataless: Bool
+    /// BSD file flags such as Locked (`chflags`). Always 0 on Linux.
+    public let flags: UInt32
 }
 
 extension FileInfo {
@@ -45,12 +47,14 @@ extension FileInfo {
         modified = Date(timeIntervalSince1970: TimeInterval(st.st_mtim.tv_sec))
         accessed = Date(timeIntervalSince1970: TimeInterval(st.st_atim.tv_sec))
         created = nil
+        flags = 0
         isDataless = false
         #else
         modified = Date(timeIntervalSince1970: TimeInterval(st.st_mtimespec.tv_sec))
         accessed = Date(timeIntervalSince1970: TimeInterval(st.st_atimespec.tv_sec))
         created = Date(timeIntervalSince1970: TimeInterval(st.st_birthtimespec.tv_sec))
-        isDataless = (UInt32(st.st_flags) & 0x40000000) != 0 // SF_DATALESS
+        flags = UInt32(st.st_flags)
+        isDataless = (flags & 0x40000000) != 0 // SF_DATALESS
         #endif
         uid = UInt32(st.st_uid)
         device = UInt64(truncatingIfNeeded: st.st_dev)
@@ -108,6 +112,13 @@ public enum FS {
     }
 
     public static func isWritable(_ path: String) -> Bool { access(path, W_OK) == 0 }
+
+    /// The path with every symlink resolved and each name as it's really spelled, or nil if it doesn't exist.
+    public static func realPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
 
     public static var currentUID: UInt32 { UInt32(getuid()) }
 
